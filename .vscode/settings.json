@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "xstring": "cpp",
+        "iostream": "cpp",
+        "iosfwd": "cpp",
+        "fstream": "cpp",
+        "ostream": "cpp",
+        "stop_token": "cpp"
+    },
+    "C_Cpp.default.compilerPath": "C:\\w64devkit\\bin\\g++.exe"
+}
