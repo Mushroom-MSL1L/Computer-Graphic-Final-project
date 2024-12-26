@@ -41,6 +41,7 @@ struct camera_t{
     float rotationY;
 };
 
+
 // settings
 int SCR_WIDTH = 800;
 int SCR_HEIGHT = 600;
@@ -50,7 +51,7 @@ unsigned int cubemapTexture;
 unsigned int cubemapVAO, cubemapVBO;
 
 // shader programs 
-int shaderProgramIndex = 0;
+int shaderProgramIndex = 6; // final project
 std::vector<shader_program_t*> shaderPrograms;
 shader_program_t* cubemapShader;
 
@@ -66,6 +67,26 @@ int moveDir = -1;
 glm::mat4 helicopterModel;
 glm::mat4 helicopterBladeModel;
 glm::mat4 cameraModel;
+
+//final project
+model_t bomb;
+glm::mat4 bombModel;
+auto startTime = std::chrono::high_resolution_clock::now();
+auto currentTime = startTime;
+float sparkStartTime = 8.0;
+float sparkDuration = 10.0;
+float expansionStartTime = 6.0;
+float expansionDuration = 12.0;
+float expansionScale = 1.0;
+float expandSpeed = 10.0;
+float crackStartTime = 5.0;
+float crackDuration = 3.0;
+float detachStartTime = 8.0;
+float detachDuration = 10.0;
+
+float gravity = 1e-4;
+float bounceFactor = 0.3f;
+glm::vec3 velocity(0.0f, 0.0f, 0.0f);
 
 //////////////////////////////////////////////////////////////////////////
 // Parameter setup, 
@@ -102,21 +123,29 @@ void model_setup(){
     std::string objDir = "..\\..\\src\\asset\\obj\\";
     std::string textureDir = "..\\..\\src\\asset\\texture\\";
 #endif
-    helicopterModel = glm::mat4(1.0f);
+    // helicopterModel = glm::mat4(1.0f);
 
-    helicopter.position = glm::vec3(0.0f, -50.0f, 0.0f);
-    helicopter.scale = glm::vec3(0.1f, 0.1f, 0.1f);
-    helicopter.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
-    helicopter.object = new Object(objDir + "helicopter_body.obj");
-    helicopter.object->load_to_buffer();
-    helicopter.object->load_texture(textureDir + "helicopter_red.jpg");
+    // helicopter.position = glm::vec3(0.0f, -50.0f, 0.0f);
+    // helicopter.scale = glm::vec3(0.1f, 0.1f, 0.1f);
+    // helicopter.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
+    // helicopter.object = new Object(objDir + "helicopter_body.obj");
+    // helicopter.object->load_to_buffer();
+    // helicopter.object->load_texture(textureDir + "helicopter_red.jpg");
 
-    helicopterBlade.position = helicopter.position;
-    helicopterBlade.scale = helicopter.scale;
-    helicopterBlade.rotation = helicopter.rotation;
-    helicopterBlade.object = new Object(objDir + "helicopter_blade.obj");
-    helicopterBlade.object->load_to_buffer();
-    helicopterBlade.object->load_texture(textureDir + "helicopter_red.jpg");
+    // helicopterBlade.position = helicopter.position;
+    // helicopterBlade.scale = helicopter.scale;
+    // helicopterBlade.rotation = helicopter.rotation;
+    // helicopterBlade.object = new Object(objDir + "helicopter_blade.obj");
+    // helicopterBlade.object->load_to_buffer();
+    // helicopterBlade.object->load_texture(textureDir + "helicopter_red.jpg");
+
+    //final project
+    bombModel = glm::mat4(1.0f);
+    bomb.position = glm::vec3(0.0f, 7.0f, 0.0f);
+    bomb.scale = glm::vec3(10.0f, 10.0f, 10.0f);
+    bomb.object = new Object(objDir + "earth.obj");
+    bomb.object->load_to_buffer();
+    bomb.object->load_texture(textureDir + "earth.jpg");
 }
 
 
@@ -134,6 +163,7 @@ void shader_setup(){
         "default",                              // default shading
         "bling-phong", "gouraud", "metallic",   // addional shading effects (basic)
         "glass_schlick", "glass_empricial",     // addional shading effects (advanced)
+        "final"                                 // final project
     };
 
     for(int i=0; i<shadingMethod.size(); i++){
@@ -143,10 +173,16 @@ void shader_setup(){
         shader_program_t* shaderProgram = new shader_program_t();
         shaderProgram->create();
         shaderProgram->add_shader(vpath, GL_VERTEX_SHADER);
+        // final project
+        if (shadingMethod[i] == "final") {
+            std::string gpath = shaderDir + shadingMethod[i] + ".geom";
+            shaderProgram->add_shader(gpath, GL_GEOMETRY_SHADER);
+        }
         shaderProgram->add_shader(fpath, GL_FRAGMENT_SHADER);
+
         shaderProgram->link_shader();
         shaderPrograms.push_back(shaderProgram);
-    } 
+    }
 }
 
 
@@ -230,31 +266,51 @@ void update(){
     
 // Update the heicopter position, camera position, rotation, etc.
 
-    helicopter.position.y += moveDir;
-    if(helicopter.position.y > 20.0 || helicopter.position.y < -100.0){
-        moveDir = -moveDir;
-    }
+    // helicopter.position.y += moveDir;
+    // if(helicopter.position.y > 20.0 || helicopter.position.y < -100.0){
+    //     moveDir = -moveDir;
+    // }
 
-    helicopterBlade.rotation.y += 10;
-    if(helicopterBlade.rotation.y > 360.0){
-        helicopterBlade.rotation.y = 0.0;
-    }
+    // helicopterBlade.rotation.y += 10;
+    // if(helicopterBlade.rotation.y > 360.0){
+    //     helicopterBlade.rotation.y = 0.0;
+    // }
 
-    helicopterModel = glm::mat4(1.0f);
-    helicopterModel = glm::scale(helicopterModel, helicopter.scale);
-    helicopterModel = glm::translate(helicopterModel, helicopter.position);
+    // helicopterModel = glm::mat4(1.0f);
+    // helicopterModel = glm::scale(helicopterModel, helicopter.scale);
+    // helicopterModel = glm::translate(helicopterModel, helicopter.position);
 
-    helicopterBladeModel = glm::rotate(helicopterModel, glm::radians(helicopterBlade.rotation.y), glm::vec3(0.0, 1.0, 0.0));
+    // helicopterBladeModel = glm::rotate(helicopterModel, glm::radians(helicopterBlade.rotation.y), glm::vec3(0.0, 1.0, 0.0));
+
+    // final project  
+    bombModel = glm::mat4(1.0f);
+    bombModel = glm::scale(bombModel, bomb.scale * expansionScale);
+    bombModel = glm::translate(bombModel, bomb.position);
+    bombModel = glm::rotate(bombModel, glm::radians(bomb.rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
 
     camera.rotationY = (camera.rotationY > 360.0) ? 0.0 : camera.rotationY;
     cameraModel = glm::mat4(1.0f);
     cameraModel = glm::rotate(cameraModel, glm::radians(camera.rotationY), camera.up);
     cameraModel = glm::translate(cameraModel, camera.position);
+
+    currentTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float> duration = currentTime - startTime ;
+    float deltaTime = duration.count() ;
+
+    velocity.y -= gravity * deltaTime;
+    if (bomb.position.y <= 0.0f) {
+        bomb.position.y = 0.0f;
+        velocity.y = -velocity.y * bounceFactor;
+        if (fabs(velocity.y) < 0.01f) {
+            velocity.y = 0.0f;
+        }
+    }
+    bomb.position += velocity * deltaTime;
 }
 
 void render(){
 
-    glClearColor(0.0, 0.0, 0.0, 1.0);
+    glClearColor(1.0, 1.0, 1.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // Calculate view, projection matrix
@@ -263,7 +319,8 @@ void render(){
 
     // Set matrix for view, projection, model transformation
     shaderPrograms[shaderProgramIndex]->use();
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterModel);
+    //shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterModel);
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("model", bombModel);
     shaderPrograms[shaderProgramIndex]->set_uniform_value("view", view);
     shaderPrograms[shaderProgramIndex]->set_uniform_value("projection", projection);
     
@@ -294,13 +351,32 @@ void render(){
     shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
     
     // reflection uniform value    
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("cubemap", 1) ;
+    //shaderPrograms[shaderProgramIndex]->set_uniform_value("cubemap", 1) ;
     // End of TODO 1
 
-    helicopter.object->render();
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterBladeModel);
-    helicopterBlade.object->render();
-    shaderPrograms[shaderProgramIndex]->release();
+    // helicopter.object->render();
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterBladeModel);
+    // helicopterBlade.object->render();
+    // shaderPrograms[shaderProgramIndex]->release();
+    
+    // final project
+    bomb.object->render() ;
+    std::chrono::duration<float> duration = currentTime - startTime ;
+    float time = duration.count() ;
+    if (time >= expansionStartTime && time <= (expansionStartTime + expansionDuration)) {
+        float normalizedTime = (time - expansionStartTime) / expansionDuration;
+        float oscillation = sin(normalizedTime * glm::pi<float>() * 2.0f * expandSpeed);
+        expansionScale = 1.0f + 0.2f * oscillation;
+    }
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("time", time) ;
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkStartTime", sparkStartTime) ;
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkDuration", sparkDuration) ;
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("crackStartTime", crackStartTime) ;
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("crackDuration", crackDuration) ;
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("detachStartTime", detachStartTime) ;
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("detachDuration", detachDuration) ;
+    shaderPrograms[shaderProgramIndex]->release() ;
+
     
     // TODO 4-2 
     // Rendering cubemap environment
@@ -310,15 +386,15 @@ void render(){
     // 3. You need to set the view, projection matrix.
     // 4. Use the cubemapShader to render the cubemap 
     //    (refer to the above code to get an idea of how to use the shader program)
-    cubemapShader->use() ;
-    glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
-    cubemapShader->set_uniform_value("view", cube_view) ;
-    cubemapShader->set_uniform_value("projection", projection) ;
-    cubemapShader->set_uniform_value("cubemap", 1) ;
-    glBindVertexArray(cubemapVAO) ;
-    glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
-    glBindVertexArray(0) ;
-    cubemapShader->release() ;
+    // cubemapShader->use() ;
+    // glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
+    // cubemapShader->set_uniform_value("view", cube_view) ;
+    // cubemapShader->set_uniform_value("projection", projection) ;
+    // cubemapShader->set_uniform_value("cubemap", 1) ;
+    // glBindVertexArray(cubemapVAO) ;
+    // glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
+    // glBindVertexArray(0) ;
+    // cubemapShader->release() ;
 }
 
 
@@ -335,7 +411,7 @@ int main() {
 #endif
 
     // glfw window creation
-    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "HW3-111550065", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Final-Project", NULL, NULL);
     if (window == NULL) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -395,6 +471,8 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         shaderProgramIndex = 4;
     if (key == GLFW_KEY_5 && (action == GLFW_REPEAT || action == GLFW_PRESS))
         shaderProgramIndex = 5;
+    if (key == GLFW_KEY_6 && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        shaderProgramIndex = 6; // final project
 
     // camera movement
     float cameraSpeed = 0.5f;
@@ -446,6 +524,5 @@ unsigned int loadCubemap(vector<std::string>& faces){
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
     return texture;
 }  
