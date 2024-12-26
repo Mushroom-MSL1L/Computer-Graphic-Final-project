@@ -46,13 +46,18 @@ int SCR_WIDTH = 800;
 int SCR_HEIGHT = 600;
 
 // cube map 
-unsigned int cubemapTexture;
-unsigned int cubemapVAO, cubemapVBO;
+unsigned int cubemapIndex = 0;
+std::vector<unsigned int> cubemapTextures ;
+std::vector<unsigned int> cubemapVBOs = {0, 0, 0};
+std::vector<unsigned int> cubemapVAOs = {0, 0, 0};
+std::vector<std::string> cubeNames = {"skybox", "grass", "mars"};
+// grass source : https://www.humus.name/index.php?page=Cubemap&item=NiagaraFalls3
+// mars source : http://www.paulbourke.net/miscellaneous/mars/
 
 // shader programs 
 int shaderProgramIndex = 0;
 std::vector<shader_program_t*> shaderPrograms;
-shader_program_t* cubemapShader;
+std::vector<shader_program_t*> cubemapShaders;
 
 // additional dependencies
 light_t light;
@@ -67,9 +72,7 @@ glm::mat4 helicopterModel;
 glm::mat4 helicopterBladeModel;
 glm::mat4 cameraModel;
 
-//////////////////////////////////////////////////////////////////////////
 // Parameter setup, 
-// You can change any of the settings if you want
 void camera_setup(){
     camera.position = glm::vec3(0.0, 20.0, 100.0);
     camera.up = glm::vec3(0.0, 1.0, 0.0);
@@ -89,12 +92,9 @@ void material_setup(){
     material.specular = glm::vec3(0.7);
     material.gloss = 10.5;
 }
-//////////////////////////////////////////////////////////////////////////
 
 void model_setup(){
-
 // Load the object and texture for each model here 
-
 #if defined(__linux__) || defined(__APPLE__)
     std::string objDir = "../../src/asset/obj/";
     std::string textureDir = "../../src/asset/texture/";
@@ -149,52 +149,57 @@ void shader_setup(){
     } 
 }
 
-
 void cubemap_setup(){
+for (int i = 0 ; i < cubeNames.size() ; i ++) {
+    std::string cubeName = cubeNames[i] ;
+    // Setup all the necessary things for cubemap rendering
+    // Including: cubemap texture, shader program, VAO, VBO
+    #if defined(__linux__) || defined(__APPLE__)
+        std::string cubemapDir = "../../src/asset/texture/";
+        cubemapDir += cubeName + "/";
+        std::string shaderDir = "../../src/shaders/";
+    #else
+        std::string cubemapDir = "..\\..\\src\\asset\\texture\\";
+        cubemapDir += cubeName + "\\";
+        std::string shaderDir = "..\\..\\src\\shaders\\";
+    #endif
 
-// Setup all the necessary things for cubemap rendering
-// Including: cubemap texture, shader program, VAO, VBO
+        // setup texture for cubemap
+        std::vector<std::string> faces
+        {
+            cubemapDir + "right.jpg",
+            cubemapDir + "left.jpg",
+            cubemapDir + "top.jpg",
+            cubemapDir + "bottom.jpg",
+            cubemapDir + "front.jpg",
+            cubemapDir + "back.jpg"
+        };
+        unsigned int cubemapTexture = loadCubemap(faces);   
 
-#if defined(__linux__) || defined(__APPLE__)
-    std::string cubemapDir = "../../src/asset/texture/skybox/";
-    std::string shaderDir = "../../src/shaders/";
-#else
-    std::string cubemapDir = "..\\..\\src\\asset\\texture\\skybox\\";
-    std::string shaderDir = "..\\..\\src\\shaders\\";
-#endif
+        // setup shader for cubemap
+        std::string vpath = shaderDir + "cubemap.vert";
+        std::string fpath = shaderDir + "cubemap.frag";
+        
+        shader_program_t* cubemapShader = new shader_program_t();
+        cubemapShader->create();
+        cubemapShader->add_shader(vpath, GL_VERTEX_SHADER);
+        cubemapShader->add_shader(fpath, GL_FRAGMENT_SHADER);
+        cubemapShader->link_shader();
 
-    // setup texture for cubemap
-    std::vector<std::string> faces
-    {
-        cubemapDir + "right.jpg",
-        cubemapDir + "left.jpg",
-        cubemapDir + "top.jpg",
-        cubemapDir + "bottom.jpg",
-        cubemapDir + "front.jpg",
-        cubemapDir + "back.jpg"
-    };
-    cubemapTexture = loadCubemap(faces);   
-
-    // setup shader for cubemap
-    std::string vpath = shaderDir + "cubemap.vert";
-    std::string fpath = shaderDir + "cubemap.frag";
-    
-    cubemapShader = new shader_program_t();
-    cubemapShader->create();
-    cubemapShader->add_shader(vpath, GL_VERTEX_SHADER);
-    cubemapShader->add_shader(fpath, GL_FRAGMENT_SHADER);
-    cubemapShader->link_shader();
-
-    glGenVertexArrays(1, &cubemapVAO);
-    glGenBuffers(1, &cubemapVBO);
-    glBindVertexArray(cubemapVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, cubemapVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cubemapVertices), &cubemapVertices, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glBindVertexArray(0);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+        glGenVertexArrays(1, &cubemapVAOs[i]);
+        printf("cubemapVAOs[%d] = %d\n", i, cubemapVAOs[i]);
+        glGenBuffers(1, &cubemapVBOs[i]);
+        glBindVertexArray(cubemapVAOs[i]);
+        glBindBuffer(GL_ARRAY_BUFFER, cubemapVBOs[i]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(cubemapVertices), &cubemapVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glBindVertexArray(0);
+        glActiveTexture(GL_TEXTURE1 + i);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+        cubemapTextures.push_back(cubemapTexture);
+        cubemapShaders.push_back(cubemapShader);
+    }
 }
 
 void setup(){
@@ -227,7 +232,7 @@ void setup(){
 }
 
 void update(){
-    
+
 // Update the heicopter position, camera position, rotation, etc.
 
     helicopter.position.y += moveDir;
@@ -294,7 +299,7 @@ void render(){
     shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
     
     // reflection uniform value    
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("cubemap", 1) ;
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("cubemap", int(cubemapIndex)) ;
     // End of TODO 1
 
     helicopter.object->render();
@@ -310,15 +315,17 @@ void render(){
     // 3. You need to set the view, projection matrix.
     // 4. Use the cubemapShader to render the cubemap 
     //    (refer to the above code to get an idea of how to use the shader program)
-    cubemapShader->use() ;
+    cubemapShaders[cubemapIndex]->use() ;
     glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
-    cubemapShader->set_uniform_value("view", cube_view) ;
-    cubemapShader->set_uniform_value("projection", projection) ;
-    cubemapShader->set_uniform_value("cubemap", 1) ;
-    glBindVertexArray(cubemapVAO) ;
+    cubemapShaders[cubemapIndex]->set_uniform_value("view", cube_view) ;
+    cubemapShaders[cubemapIndex]->set_uniform_value("projection", projection) ;
+    cubemapShaders[cubemapIndex]->set_uniform_value("cubemap", int(cubemapIndex)) ;
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTextures[cubemapIndex]) ;
+    glBindVertexArray(cubemapVAOs[cubemapIndex]) ;
+    printf("cubemapIndex = %d\n", cubemapIndex) ;
     glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
     glBindVertexArray(0) ;
-    cubemapShader->release() ;
+    cubemapShaders[cubemapIndex]->release() ;
 }
 
 
@@ -335,7 +342,7 @@ int main() {
 #endif
 
     // glfw window creation
-    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "HW3-111550065", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "HW4", NULL, NULL);
     if (window == NULL) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -406,7 +413,14 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         camera.rotationY -= 10.0;
     if (key == GLFW_KEY_D && (action == GLFW_REPEAT || action == GLFW_PRESS))
         camera.rotationY += 10.0;
-    
+
+    // cubemap selection
+    if (key == GLFW_KEY_Z && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        cubemapIndex = 0;// skybox
+    if (key == GLFW_KEY_X && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        cubemapIndex = 1 ; // grass
+    if (key == GLFW_KEY_C && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        cubemapIndex = 2; // mars
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
