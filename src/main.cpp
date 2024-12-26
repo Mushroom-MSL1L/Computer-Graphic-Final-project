@@ -60,14 +60,15 @@ struct camera_t{
     float rotationY;
 };
 
-struct particle_t{
-    glm::vec3 position;
-    glm::vec3 velocity;
-    glm::vec3 acceleration;
-    glm::vec3 color;
-    glm::vec3 direction;
-    float life;
-    float maxLife;
+struct particleSystem_t {
+    glm::vec3 position ;
+    glm::vec3 incident ;
+    glm::vec3 normal ;
+    glm::vec3 acceleration ;
+    float baseSize ;
+    float baseLifetime ;
+    float randomFactor ;
+    unsigned int generateParticleNumeber ;
 };
 
 // settings
@@ -76,6 +77,7 @@ int SCR_HEIGHT = 600;
 
 // cube map 
 unsigned int cubemapIndex = 0;
+std::vector<shader_program_t*> cubemapShaders;
 std::vector<unsigned int> cubemapTextures ;
 std::vector<unsigned int> cubemapVBOs = {0, 0, 0};
 std::vector<unsigned int> cubemapVAOs = {0, 0, 0};
@@ -92,14 +94,20 @@ shader_program_t* groundShader;
 glm::mat4 groundModel;
 ground_t ground;
 std::vector<string> groundNames = {"Grass", "Sand", "Stones"};
-// Grass source : https://www.humus.name/index.php?page=Textures&ID=24
-// Sand source : https://www.humus.name/index.php?page=Textures&ID=28
-// Stones source : https://www.humus.name/index.php?page=Textures&ID=29
+//// Grass source : https://www.humus.name/index.php?page=Textures&ID=24
+//// Sand source : https://www.humus.name/index.php?page=Textures&ID=28
+//// Stones source : https://www.humus.name/index.php?page=Textures&ID=29
+
+// particle
+std::vector<Particle*> particles;
+shader_program_t* particleShader;
+particleSystem_t particleSystem;
+float rate = 1.0; // rate of particle generation per frame
+GLuint ParticleVBO, ParticleVAO;
 
 // shader programs 
 int shaderProgramIndex = 0;
 std::vector<shader_program_t*> shaderPrograms;
-std::vector<shader_program_t*> cubemapShaders;
 
 // additional dependencies
 light_t light;
@@ -107,7 +115,6 @@ material_t material;
 camera_t camera;
 model_t helicopter;
 model_t helicopterBlade;
-particle_t particle;
 
 // model matrix
 int moveDir = -1;
@@ -136,14 +143,44 @@ void material_setup(){
     material.gloss = 10.5;
 }
 
-void particle_setup(){
-    particle.position = glm::vec3(0.0, 0.0, 0.0);
-    particle.velocity = glm::vec3(0.0, 0.0, 0.0);
-    particle.acceleration = glm::vec3(0.0, 0.0, 0.0);
-    particle.color = glm::vec3(1.0, 0.0, 0.0);
-    particle.direction = glm::vec3(0.0, 1.0, 0.0);
-    particle.life = 0.0;
-    particle.maxLife = 100.0;
+void particle_model_setup() {
+    /* ======================== particle system ========================*/
+    particleSystem.position = glm::vec3(0, 0, 0);
+    particleSystem.incident = glm::vec3(0, 0.5, 0);                 // direction for emit direction and velocity
+    particleSystem.normal = glm::normalize(glm::vec3(0, 1, 0));     // spread direction
+    particleSystem.acceleration = glm::vec3(0, -0.1, 0);
+    particleSystem.baseSize = 0.15f;                                 // size of particle, will be randomized later
+    particleSystem.baseLifetime = 100.0f;                           // lifetime of particle, will be randomized later
+    particleSystem.generateParticleNumeber = 4 ;
+    particleSystem.randomFactor = 0.05f;
+
+    /* ======================== VAO, VBO =======================*/
+    float vertices[] = { 0.0f, 1.0f, 0.0f }; // real position of emitter
+
+    glGenVertexArrays(1, &ParticleVAO);
+    glBindVertexArray(ParticleVAO);
+
+    glGenBuffers(1, &ParticleVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, ParticleVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+void particle_shader_setup(){
+    std::string vpath = shaderDir + "particle.vert";
+    std::string gpath = shaderDir + "particle.geom";
+    std::string fpath = shaderDir + "particle.frag";
+    particleShader = new shader_program_t();
+    particleShader->create();
+    particleShader->add_shader(vpath, GL_VERTEX_SHADER);
+    particleShader->add_shader(gpath, GL_GEOMETRY_SHADER);
+    particleShader->add_shader(fpath, GL_FRAGMENT_SHADER);
+    particleShader->link_shader();
 }
 
 void heli_model_setup(){
@@ -188,8 +225,9 @@ void heli_shader_setup(){
 
 void ground_model_setup() {
     groundModel = glm::mat4(1.0f);
-    ground.position = glm::vec3(0.0f, -0.5f, 0.0f);
-    ground.scale = glm::vec3(1000.0f, 1000.0f, 1000.0f);
+    ground.position = glm::vec3(0.0f, -0.5f, 0.0f);         
+    // ground.scale = glm::vec3(1000.0f, 1000.0f, 1000.0f); // for video show
+    ground.scale = glm::vec3(10.0f, 10.0f, 10.0f);          // for test
     ground.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
 
     for (int i = 0; i < groundNames.size(); i++) {
@@ -297,7 +335,6 @@ void cubemap_setup(){
 }
 
 void setup(){
-
     // Initialize shader model camera light material
     light_setup();
     // heli_model_setup();
@@ -307,7 +344,8 @@ void setup(){
     camera_setup();
     cubemap_setup();
     material_setup();
-    particle_setup();
+    particle_model_setup();
+    particle_shader_setup();
 
     // Enable depth test, face culling ...
     glEnable(GL_DEPTH_TEST);
@@ -326,6 +364,38 @@ void setup(){
     //           << ", severity = " << severity 
     //           << ", message = " << message << std::endl;
     // }, nullptr);
+}
+
+void makeParticles(particleSystem_t* system) {
+	unsigned seed = std::chrono::steady_clock::now().time_since_epoch().count();
+	std::default_random_engine generator(seed);
+	ParticleCreateInfo createInfo;
+	createInfo.acceleration = system->acceleration;
+	createInfo.color = glm::vec3(1.0f, 0.0f, 0.0f); // base is red 
+	createInfo.position = system->position;
+
+	for (int i = 0; i < system->generateParticleNumeber; ++i) {
+		float x = float(generator() % 100) / 50.f - 1.0f;
+		float y = float(generator() % 100) / 50.f - 1.0f;
+		float z = float(generator() % 100) / 50.f - 1.0f;
+
+		glm::vec3 randomization = glm::vec3(x, y, z);
+		glm::vec3 randomizedNormal = glm::normalize(system->randomFactor * randomization + system->normal);
+
+		x = float(generator() % 100) / 10.0f;
+		glm::vec3 outgoing = x * glm::reflect(system->incident, randomizedNormal);
+
+		createInfo.velocity = outgoing;
+        createInfo.color += glm::vec3(0.0f, 0.1f, 0.0f) * (float(generator() % 100) / 100.0f); // add tobe yellow
+
+        x = system->baseSize + (float(generator() % 100) - 50.0f) / 50.0f * system->baseSize;
+        createInfo.size = x ;
+
+		x = system->baseLifetime + (float(generator() % 100) - 50.0f) / 50.0f * system->baseLifetime;
+		createInfo.lifetime = x;
+
+		particles.push_back(new Particle(&createInfo));
+	}
 }
 
 void update(){
@@ -356,6 +426,17 @@ void update(){
     groundModel = glm::mat4(1.0f);
     groundModel = glm::scale(groundModel, ground.scale);
     groundModel = glm::translate(groundModel, ground.position);
+
+    makeParticles(&particleSystem);
+	for (int i = 0; i < particles.size(); ++i) {
+		Particle* particle = particles[i];
+		particle->update(rate);
+
+		if (particle->t >= particle->lifetime) {
+			delete particle;
+			particles.erase(particles.begin() + i--);
+		}
+	}
 }
 
 void render(){
@@ -408,7 +489,7 @@ void render(){
     // helicopterBlade.object->render();
     // shaderPrograms[shaderProgramIndex]->release();
 
-    // Ground rendering
+    /*======================== Ground rendering ========================*/ 
     glDisable(GL_CULL_FACE); 
     groundShader->use();
     int groundTextureUnit = 0;
@@ -424,8 +505,7 @@ void render(){
     groundShader->release();
     glEnable(GL_CULL_FACE); 
     
-    // TODO 4-2 
-    // Rendering cubemap environment
+    /*======================== cubemap environment rendering ========================*/ 
     cubemapShaders[cubemapIndex]->use() ;
     glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
     cubemapShaders[cubemapIndex]->set_uniform_value("view", cube_view) ;
@@ -436,6 +516,22 @@ void render(){
     glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
     glBindVertexArray(0) ;
     cubemapShaders[cubemapIndex]->release() ;
+
+    /*======================== Particle rendering ========================*/
+    glDisable(GL_CULL_FACE); 
+    particleShader->use();
+    particleShader->set_uniform_value("view", view);
+    particleShader->set_uniform_value("projection", projection);
+	for (Particle* particle : particles) {
+        particleShader->set_uniform_value("model", particle->modelTransform);
+        particleShader->set_uniform_value("particleSize", particle->size);
+        particleShader->set_uniform_value("tint", particle->tint);  // fading color, not work temporarily use fixed variable in fragment shadere
+        glBindVertexArray(ParticleVAO);
+		glDrawArrays(GL_POINTS, 0, 1);
+        glBindVertexArray(0);
+	}
+    particleShader->release();
+    glEnable(GL_CULL_FACE); 
 }
 
 
