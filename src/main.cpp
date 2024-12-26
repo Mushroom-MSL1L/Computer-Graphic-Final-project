@@ -6,13 +6,26 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "header/cube.h"
+#include "header/cubemap.h"
 #include "header/object.h"
 #include "header/shader.h"
 #include "header/stb_image.h"
+#include "header/particle.h"
+
+#if defined(__linux__) || defined(__APPLE__)
+    std::string objDir = "../../src/asset/obj/";
+    std::string textureDir = "../../src/asset/texture/";
+    std::string shaderDir = "../../src/shaders/";
+#else
+    std::string objDir = "..\\..\\src\\asset\\obj\\";
+    std::string textureDir = "..\\..\\src\\asset\\texture\\";
+    std::string shaderDir = "..\\..\\src\\shaders\\";
+#endif
 
 void framebufferSizeCallback(GLFWwindow *window, int width, int height);
 void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 unsigned int loadCubemap(std::vector<string> &mFileName);
+void load_image(std::string texturePath);
 
 struct material_t{
     glm::vec3 ambient;
@@ -35,10 +48,26 @@ struct model_t{
     Object* object;
 };
 
+struct ground_t{
+    glm::vec3 position;
+    glm::vec3 scale;
+    glm::vec3 rotation;
+};
+
 struct camera_t{
     glm::vec3 position;
     glm::vec3 up;
     float rotationY;
+};
+
+struct particle_t{
+    glm::vec3 position;
+    glm::vec3 velocity;
+    glm::vec3 acceleration;
+    glm::vec3 color;
+    glm::vec3 direction;
+    float life;
+    float maxLife;
 };
 
 // settings
@@ -51,8 +80,21 @@ std::vector<unsigned int> cubemapTextures ;
 std::vector<unsigned int> cubemapVBOs = {0, 0, 0};
 std::vector<unsigned int> cubemapVAOs = {0, 0, 0};
 std::vector<std::string> cubeNames = {"skybox", "grass", "mars"};
-// grass source : https://www.humus.name/index.php?page=Cubemap&item=NiagaraFalls3
-// mars source : http://www.paulbourke.net/miscellaneous/mars/
+//// grass source : https://www.humus.name/index.php?page=Cubemap&item=NiagaraFalls3
+//// mars source : http://www.paulbourke.net/miscellaneous/mars/
+
+// ground 
+unsigned int groundVAO = 0;
+unsigned int groundVBO = 0;
+GLuint groundTextureIndex = 0;
+std::vector<GLuint> groundTextures;
+shader_program_t* groundShader;
+glm::mat4 groundModel;
+ground_t ground;
+std::vector<string> groundNames = {"Grass", "Sand", "Stones"};
+// Grass source : https://www.humus.name/index.php?page=Textures&ID=24
+// Sand source : https://www.humus.name/index.php?page=Textures&ID=28
+// Stones source : https://www.humus.name/index.php?page=Textures&ID=29
 
 // shader programs 
 int shaderProgramIndex = 0;
@@ -65,6 +107,7 @@ material_t material;
 camera_t camera;
 model_t helicopter;
 model_t helicopterBlade;
+particle_t particle;
 
 // model matrix
 int moveDir = -1;
@@ -93,15 +136,18 @@ void material_setup(){
     material.gloss = 10.5;
 }
 
-void model_setup(){
+void particle_setup(){
+    particle.position = glm::vec3(0.0, 0.0, 0.0);
+    particle.velocity = glm::vec3(0.0, 0.0, 0.0);
+    particle.acceleration = glm::vec3(0.0, 0.0, 0.0);
+    particle.color = glm::vec3(1.0, 0.0, 0.0);
+    particle.direction = glm::vec3(0.0, 1.0, 0.0);
+    particle.life = 0.0;
+    particle.maxLife = 100.0;
+}
+
+void heli_model_setup(){
 // Load the object and texture for each model here 
-#if defined(__linux__) || defined(__APPLE__)
-    std::string objDir = "../../src/asset/obj/";
-    std::string textureDir = "../../src/asset/texture/";
-#else
-    std::string objDir = "..\\..\\src\\asset\\obj\\";
-    std::string textureDir = "..\\..\\src\\asset\\texture\\";
-#endif
     helicopterModel = glm::mat4(1.0f);
 
     helicopter.position = glm::vec3(0.0f, -50.0f, 0.0f);
@@ -119,17 +165,8 @@ void model_setup(){
     helicopterBlade.object->load_texture(textureDir + "helicopter_red.jpg");
 }
 
-
-void shader_setup(){
-
-// Setup the shader program for each shading method
-
-#if defined(__linux__) || defined(__APPLE__)
-    std::string shaderDir = "../../src/shaders/";
-#else
-    std::string shaderDir = "..\\..\\src\\shaders\\";
-#endif
-
+void heli_shader_setup(){
+    // Setup the shader program for each shading method
     std::vector<std::string> shadingMethod = {
         "default",                              // default shading
         "bling-phong", "gouraud", "metallic",   // addional shading effects (basic)
@@ -149,20 +186,78 @@ void shader_setup(){
     } 
 }
 
+void ground_model_setup() {
+    groundModel = glm::mat4(1.0f);
+    ground.position = glm::vec3(0.0f, -0.5f, 0.0f);
+    ground.scale = glm::vec3(1000.0f, 1000.0f, 1000.0f);
+    ground.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
+
+    for (int i = 0; i < groundNames.size(); i++) {
+        std::string texturePath = textureDir + groundNames[i] + ".jpg";
+        GLuint groundTexture;
+        glGenTextures(1, &groundTexture);
+        glBindTexture(GL_TEXTURE_2D, groundTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        load_image(texturePath);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        groundTextures.push_back(groundTexture);
+    }
+}
+
+void load_image(std::string texturePath){
+    int width, height, nrChannels;
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char* data = stbi_load(texturePath.c_str(), &width, &height, &nrChannels, 0);
+    if (data) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    } else {
+        std::cout << "Failed to load texture" << std::endl;
+    }
+    stbi_image_free(data);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void ground_shader_setup(){
+    std::string vpath = shaderDir + "ground.vert";
+    std::string fpath = shaderDir + "ground.frag";
+    groundShader = new shader_program_t();
+    groundShader->create();
+    groundShader->add_shader(vpath, GL_VERTEX_SHADER);
+    groundShader->add_shader(fpath, GL_FRAGMENT_SHADER);
+    groundShader->link_shader();
+
+    glGenVertexArrays(1, &groundVAO);
+    glGenBuffers(1, &groundVBO);
+
+    glBindVertexArray(groundVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, groundVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+
+    // Position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Texture coordinate attribute
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+}
+
 void cubemap_setup(){
-for (int i = 0 ; i < cubeNames.size() ; i ++) {
-    std::string cubeName = cubeNames[i] ;
-    // Setup all the necessary things for cubemap rendering
-    // Including: cubemap texture, shader program, VAO, VBO
-    #if defined(__linux__) || defined(__APPLE__)
-        std::string cubemapDir = "../../src/asset/texture/";
-        cubemapDir += cubeName + "/";
-        std::string shaderDir = "../../src/shaders/";
-    #else
-        std::string cubemapDir = "..\\..\\src\\asset\\texture\\";
-        cubemapDir += cubeName + "\\";
-        std::string shaderDir = "..\\..\\src\\shaders\\";
-    #endif
+    for (int i = 0 ; i < cubeNames.size() ; i ++) {
+        std::string cubeName = cubeNames[i] ;
+        // Setup all the necessary things for cubemap rendering
+        // Including: cubemap texture, shader program, VAO, VBO
+#if defined(__linux__) || defined(__APPLE__)
+        std::string cubemapDir = "../../src/asset/texture/" + cubeName + "/";
+#else
+        std::string cubemapDir = "..\\..\\src\\asset\\texture\\" + cubeName + "\\";
+#endif
 
         // setup texture for cubemap
         std::vector<std::string> faces
@@ -187,7 +282,6 @@ for (int i = 0 ; i < cubeNames.size() ; i ++) {
         cubemapShader->link_shader();
 
         glGenVertexArrays(1, &cubemapVAOs[i]);
-        printf("cubemapVAOs[%d] = %d\n", i, cubemapVAOs[i]);
         glGenBuffers(1, &cubemapVBOs[i]);
         glBindVertexArray(cubemapVAOs[i]);
         glBindBuffer(GL_ARRAY_BUFFER, cubemapVBOs[i]);
@@ -206,11 +300,14 @@ void setup(){
 
     // Initialize shader model camera light material
     light_setup();
-    model_setup();
-    shader_setup();
+    // heli_model_setup();
+    // heli_shader_setup();
+    ground_model_setup();
+    ground_shader_setup();
     camera_setup();
     cubemap_setup();
     material_setup();
+    particle_setup();
 
     // Enable depth test, face culling ...
     glEnable(GL_DEPTH_TEST);
@@ -235,26 +332,30 @@ void update(){
 
 // Update the heicopter position, camera position, rotation, etc.
 
-    helicopter.position.y += moveDir;
-    if(helicopter.position.y > 20.0 || helicopter.position.y < -100.0){
-        moveDir = -moveDir;
-    }
+    // helicopter.position.y += moveDir;
+    // if(helicopter.position.y > 20.0 || helicopter.position.y < -100.0){
+    //     moveDir = -moveDir;
+    // }
 
-    helicopterBlade.rotation.y += 10;
-    if(helicopterBlade.rotation.y > 360.0){
-        helicopterBlade.rotation.y = 0.0;
-    }
+    // helicopterBlade.rotation.y += 10;
+    // if(helicopterBlade.rotation.y > 360.0){
+    //     helicopterBlade.rotation.y = 0.0;
+    // }
 
-    helicopterModel = glm::mat4(1.0f);
-    helicopterModel = glm::scale(helicopterModel, helicopter.scale);
-    helicopterModel = glm::translate(helicopterModel, helicopter.position);
+    // helicopterModel = glm::mat4(1.0f);
+    // helicopterModel = glm::scale(helicopterModel, helicopter.scale);
+    // helicopterModel = glm::translate(helicopterModel, helicopter.position);
 
-    helicopterBladeModel = glm::rotate(helicopterModel, glm::radians(helicopterBlade.rotation.y), glm::vec3(0.0, 1.0, 0.0));
+    // helicopterBladeModel = glm::rotate(helicopterModel, glm::radians(helicopterBlade.rotation.y), glm::vec3(0.0, 1.0, 0.0));
 
     camera.rotationY = (camera.rotationY > 360.0) ? 0.0 : camera.rotationY;
     cameraModel = glm::mat4(1.0f);
     cameraModel = glm::rotate(cameraModel, glm::radians(camera.rotationY), camera.up);
     cameraModel = glm::translate(cameraModel, camera.position);
+
+    groundModel = glm::mat4(1.0f);
+    groundModel = glm::scale(groundModel, ground.scale);
+    groundModel = glm::translate(groundModel, ground.position);
 }
 
 void render(){
@@ -266,55 +367,65 @@ void render(){
     glm::mat4 view = glm::lookAt(glm::vec3(cameraModel[3]), glm::vec3(0.0), camera.up);
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
 
-    // Set matrix for view, projection, model transformation
-    shaderPrograms[shaderProgramIndex]->use();
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterModel);
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("view", view);
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("projection", projection);
+    // // Set matrix for view, projection, model transformation
+    // shaderPrograms[shaderProgramIndex]->use();
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterModel);
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("view", view);
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("projection", projection);
     
-    // TODO 1
-    // Set uniform value for each shader program
-    if (shaderProgramIndex == 1) {
-        light.specular = glm::vec3(3.0);
-        material.gloss = 10.5;
-    } else if (shaderProgramIndex == 2) {
-        light.specular = glm::vec3(4.0);
-        material.gloss = 48;
-    } else {
-        light.specular = glm::vec3(1.0);
-        material.gloss = 10.5;
-    }
-    // camera uniform value
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("camera_position", cameraModel[3]) ;
-    // light uniform value
-    glm::vec3 lightPositionInCameraSpace = glm::vec3(cameraModel * glm::vec4(light.position, 1.0f));
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_ambient", light.ambient) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_diffuse", light.diffuse) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_position", lightPositionInCameraSpace) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_specular", light.specular) ;
-    // material uniform value 
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_ambient", material.ambient) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_diffuse", material.diffuse) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_gloss", material.gloss) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
+    // // TODO 1
+    // // Set uniform value for each shader program
+    // if (shaderProgramIndex == 1) {
+    //     light.specular = glm::vec3(3.0);
+    //     material.gloss = 10.5;
+    // } else if (shaderProgramIndex == 2) {
+    //     light.specular = glm::vec3(4.0);
+    //     material.gloss = 48;
+    // } else {
+    //     light.specular = glm::vec3(1.0);
+    //     material.gloss = 10.5;
+    // }
+    // // camera uniform value
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("camera_position", cameraModel[3]) ;
+    // // light uniform value
+    // glm::vec3 lightPositionInCameraSpace = glm::vec3(cameraModel * glm::vec4(light.position, 1.0f));
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("light_ambient", light.ambient) ;
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("light_diffuse", light.diffuse) ;
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("light_position", lightPositionInCameraSpace) ;
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("light_specular", light.specular) ;
+    // // material uniform value 
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("material_ambient", material.ambient) ;
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("material_diffuse", material.diffuse) ;
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("material_gloss", material.gloss) ;
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
     
-    // reflection uniform value    
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("cubemap", int(cubemapIndex)) ;
-    // End of TODO 1
+    // // reflection uniform value    
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("cubemap", int(cubemapIndex)) ;
+    // // End of TODO 1
 
-    helicopter.object->render();
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterBladeModel);
-    helicopterBlade.object->render();
-    shaderPrograms[shaderProgramIndex]->release();
+    // helicopter.object->render();
+    // shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterBladeModel);
+    // helicopterBlade.object->render();
+    // shaderPrograms[shaderProgramIndex]->release();
+
+    // Ground rendering
+    glDisable(GL_CULL_FACE); 
+    groundShader->use();
+    int groundTextureUnit = 0;
+    glActiveTexture(GL_TEXTURE0 + groundTextureUnit);
+    glBindTexture(GL_TEXTURE_2D, groundTextures[groundTextureIndex]);
+    groundShader->set_uniform_value("model", groundModel);
+    groundShader->set_uniform_value("view", view);
+    groundShader->set_uniform_value("projection", projection);
+    groundShader->set_uniform_value("texture1", groundTextureUnit);
+    glBindVertexArray(groundVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+    groundShader->release();
+    glEnable(GL_CULL_FACE); 
     
     // TODO 4-2 
     // Rendering cubemap environment
-    // Hint:
-    // 1. All the needed things are already set up in cubemap_setup() function.
-    // 2. You can use the vertices in cubemapVertices provided in the header/cube.h
-    // 3. You need to set the view, projection matrix.
-    // 4. Use the cubemapShader to render the cubemap 
-    //    (refer to the above code to get an idea of how to use the shader program)
     cubemapShaders[cubemapIndex]->use() ;
     glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
     cubemapShaders[cubemapIndex]->set_uniform_value("view", cube_view) ;
@@ -322,7 +433,6 @@ void render(){
     cubemapShaders[cubemapIndex]->set_uniform_value("cubemap", int(cubemapIndex)) ;
     glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTextures[cubemapIndex]) ;
     glBindVertexArray(cubemapVAOs[cubemapIndex]) ;
-    printf("cubemapIndex = %d\n", cubemapIndex) ;
     glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
     glBindVertexArray(0) ;
     cubemapShaders[cubemapIndex]->release() ;
@@ -421,6 +531,14 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         cubemapIndex = 1 ; // grass
     if (key == GLFW_KEY_C && (action == GLFW_REPEAT || action == GLFW_PRESS))
         cubemapIndex = 2; // mars
+
+    // ground texture selection
+    if (key == GLFW_KEY_V && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        groundTextureIndex = 0; // grass
+    if (key == GLFW_KEY_B && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        groundTextureIndex = 1; // sand
+    if (key == GLFW_KEY_N && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        groundTextureIndex = 2; // stones
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
