@@ -237,7 +237,7 @@ void LensFlare() {
         FragPosition = vec3(flarePos);
         isSpark = 0.0;
         isEffect = 1.0;
-        effectColor = vec3(1.0, 1.0, 0.5); // フレアの色
+        effectColor = vec3(1.0, 1.0, 0.5);
         EmitVertex();
     }
     EndPrimitive();
