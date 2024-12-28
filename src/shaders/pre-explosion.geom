@@ -35,6 +35,8 @@ const float sparkSize = 0.05;
 const float crackScale = 20.0;
 const vec3 startSparkColor = vec3(0.9, 0.3, 0.1);
 const vec3 endSparkColor = vec3(1.0, 0.6, 0.2); 
+vec4 center;
+vec3 normal;
 
 float random(vec2 st) {
     return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
@@ -52,7 +54,7 @@ vec3 getNormal() {
     return normalize(cross(a, b));
 }
 
-void emitSpark(vec4 position, vec3 normal, vec3 color, float alive) {
+void emitSpark(vec4 position, vec3 color, float alive) {
     if (alive <= 0.0) return;
 
     vec4 p1 = position + vec4(-sparkSize, -sparkSize, 0.0, 0.0);
@@ -61,7 +63,7 @@ void emitSpark(vec4 position, vec3 normal, vec3 color, float alive) {
 
     gl_Position = projection * view * p1;
     TexCoord = vec2(0.0, 0.0);
-    FragNormal = normalize(normal);
+    FragNormal = normal;
     FragPosition = vec3(p1);
     isSpark = alive;
     isEffect = 0.0;
@@ -70,7 +72,7 @@ void emitSpark(vec4 position, vec3 normal, vec3 color, float alive) {
 
     gl_Position = projection * view * p2;
     TexCoord = vec2(0.0, 0.0);
-    FragNormal = normalize(normal);
+    FragNormal = normal;
     FragPosition = vec3(p2);
     isSpark = alive;
     isEffect = 0.0;
@@ -79,7 +81,7 @@ void emitSpark(vec4 position, vec3 normal, vec3 color, float alive) {
 
     gl_Position = projection * view * p3;
     TexCoord = vec2(0.0, 0.0);
-    FragNormal = normalize(normal);
+    FragNormal = normal;
     FragPosition = vec3(p3);
     isSpark = alive;
     isEffect = 0.0;
@@ -94,8 +96,6 @@ void Spark() {
         return;
     }
 
-    vec4 center = getTriangleCenter();
-    vec3 normal = getNormal();
     float elapsedTime = time - sparkStartTime;
     float normalizedTime = elapsedTime / sparkDuration;
 
@@ -117,7 +117,7 @@ void Spark() {
         vec3 sparkColor = mix(startSparkColor, endSparkColor, pow(normalizedTime, 1.2));
         sparkColor += vec3(0.05, 0.02, 0.0) * alive;
         vec4 sparkPos = center + vec4((normal + offset) * distance, 0.0);
-        emitSpark(sparkPos, normal, sparkColor, alive);
+        emitSpark(sparkPos, sparkColor, alive);
     }
 }
 
@@ -137,7 +137,7 @@ void Crack() {
 
     gl_Position = projection * view * p1;
     TexCoord = gs_in[0].TexCoord;
-    FragNormal = getNormal();
+    FragNormal = normal;
     FragPosition = gs_in[0].FragPosition;
     isSpark = 0.0;
     isEffect = 0.0;
@@ -145,7 +145,7 @@ void Crack() {
 
     gl_Position = projection * view * p2;
     TexCoord = gs_in[1].TexCoord;
-    FragNormal = getNormal();
+    FragNormal = normal;
     FragPosition = gs_in[1].FragPosition;
     isSpark = 0.0;
     isEffect = 0.0;
@@ -153,7 +153,7 @@ void Crack() {
 
     gl_Position = projection * view * p3;
     TexCoord = gs_in[2].TexCoord;
-    FragNormal = getNormal();
+    FragNormal = normal;
     FragPosition = gs_in[2].FragPosition;
     isSpark = 0.0;
     isEffect = 0.0;
@@ -166,8 +166,6 @@ void Detach(){
     if (time < detachStartTime || time > detachStartTime + detachDuration) {
         return;
     }
-
-    vec3 normal = getNormal();
 
     float elapsedTime = time - detachStartTime;
     float normalizedTime = elapsedTime / detachDuration;
@@ -221,11 +219,10 @@ void LensFlare() {
     if (time < sparkStartTime || time > sparkStartTime + sparkDuration) {
         return;
     }
-    vec4 position = getTriangleCenter();
     const float flareSize = 1.0;
 
     for (int i = 0; i < 3; i++) {
-        vec4 flarePos = position + vec4(
+        vec4 flarePos = center + vec4(
             cos(float(i) * 3.141592 / 2.0) * flareSize,
             sin(float(i) * 3.141592 / 2.0) * flareSize,
             0.0, 0.0
@@ -243,8 +240,14 @@ void LensFlare() {
     EndPrimitive();
 }
 
+void init(){
+    normal = getNormal();
+    center = getTriangleCenter();
+}
+
 void main() {
-    
+    init();
+
     for (int i = 0; i < 3; i++) {
         gl_Position = gl_in[i].gl_Position;
         TexCoord = gs_in[i].TexCoord;

@@ -9,6 +9,7 @@
 #include "header/object.h"
 #include "header/shader.h"
 #include "header/stb_image.h"
+#include "header/expansion.h"
 
 void framebufferSizeCallback(GLFWwindow *window, int width, int height);
 void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
@@ -79,11 +80,11 @@ float expansionStartTime = 6.0;
 float expansionDuration = 12.0;
 float expansionScale = 1.0;
 float expandSpeed = 10.0;
+Expansion bombExpansion(expansionStartTime, expansionDuration, expandSpeed); // final project
 float crackStartTime = 5.0;
 float crackDuration = 3.0;
 float detachStartTime = 8.0;
 float detachDuration = 10.0;
-
 float gravity = 1e-4;
 float bounceFactor = 0.3f;
 glm::vec3 velocity(0.0f, 0.0f, 0.0f);
@@ -174,7 +175,7 @@ void shader_setup(){
         shaderProgram->create();
         shaderProgram->add_shader(vpath, GL_VERTEX_SHADER);
         // final project
-        if (shadingMethod[i] == "final") {
+        if (shadingMethod[i] == "pre-explosion") {
             std::string gpath = shaderDir + shadingMethod[i] + ".geom";
             shaderProgram->add_shader(gpath, GL_GEOMETRY_SHADER);
         }
@@ -300,10 +301,7 @@ void update(){
     velocity.y -= gravity * deltaTime;
     if (bomb.position.y <= 0.0f) {
         bomb.position.y = 0.0f;
-        velocity.y = -velocity.y * bounceFactor;
-        if (fabs(velocity.y) < 0.01f) {
-            velocity.y = 0.0f;
-        }
+        velocity.y = 0.0f;
     }
     bomb.position += velocity * deltaTime;
 }
@@ -364,9 +362,8 @@ void render(){
     std::chrono::duration<float> duration = currentTime - startTime ;
     float time = duration.count() ;
     if (time >= expansionStartTime && time <= (expansionStartTime + expansionDuration)) {
-        float normalizedTime = (time - expansionStartTime) / expansionDuration;
-        float oscillation = sin(normalizedTime * glm::pi<float>() * 2.0f * expandSpeed);
-        expansionScale = 1.0f + 0.2f * oscillation;
+        bombExpansion.update(time);
+        expansionScale = bombExpansion.getScale();
     }
     shaderPrograms[shaderProgramIndex]->set_uniform_value("time", time) ;
     shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkStartTime", sparkStartTime) ;
