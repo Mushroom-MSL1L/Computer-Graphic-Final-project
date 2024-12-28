@@ -6,14 +6,27 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "header/cube.h"
+#include "header/cubemap.h"
 #include "header/object.h"
 #include "header/shader.h"
 #include "header/stb_image.h"
 #include "header/expansion.h"
+#include "header/particle.h"
+
+#if defined(__linux__) || defined(__APPLE__)
+    std::string objDir = "../../src/asset/obj/";
+    std::string textureDir = "../../src/asset/texture/";
+    std::string shaderDir = "../../src/shaders/";
+#else
+    std::string objDir = "..\\..\\src\\asset\\obj\\";
+    std::string textureDir = "..\\..\\src\\asset\\texture\\";
+    std::string shaderDir = "..\\..\\src\\shaders\\";
+#endif
 
 void framebufferSizeCallback(GLFWwindow *window, int width, int height);
 void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 unsigned int loadCubemap(std::vector<string> &mFileName);
+void load_image(std::string texturePath);
 
 struct material_t{
     glm::vec3 ambient;
@@ -36,25 +49,65 @@ struct model_t{
     Object* object;
 };
 
+struct ground_t{
+    glm::vec3 position;
+    glm::vec3 scale;
+    glm::vec3 rotation;
+};
+
 struct camera_t{
     glm::vec3 position;
     glm::vec3 up;
     float rotationY;
 };
-
+struct particleSystem_t {
+    glm::vec3 position ;
+    glm::vec3 incident ;
+    glm::vec3 normal ;
+    glm::vec3 acceleration ;
+    float baseSize ;
+    float baseLifetime ;
+    float randomFactor ;
+    unsigned int generateParticleNumeber ;
+};
 
 // settings
 int SCR_WIDTH = 800;
 int SCR_HEIGHT = 600;
 
 // cube map 
-unsigned int cubemapTexture;
-unsigned int cubemapVAO, cubemapVBO;
+unsigned int cubemapIndex = 0;
+std::vector<shader_program_t*> cubemapShaders;
+std::vector<unsigned int> cubemapTextures ;
+std::vector<unsigned int> cubemapVBOs = {0, 0, 0};
+std::vector<unsigned int> cubemapVAOs = {0, 0, 0};
+std::vector<std::string> cubeNames = {"skybox", "grass", "mars"};
+//// grass source : https://www.humus.name/index.php?page=Cubemap&item=NiagaraFalls3
+//// mars source : http://www.paulbourke.net/miscellaneous/mars/
+
+// ground 
+unsigned int groundVAO = 0;
+unsigned int groundVBO = 0;
+GLuint groundTextureIndex = 0;
+std::vector<GLuint> groundTextures;
+shader_program_t* groundShader;
+glm::mat4 groundModel;
+ground_t ground;
+std::vector<string> groundNames = {"Grass", "Sand", "Stones"};
+//// Grass source : https://www.humus.name/index.php?page=Textures&ID=24
+//// Sand source : https://www.humus.name/index.php?page=Textures&ID=28
+//// Stones source : https://www.humus.name/index.php?page=Textures&ID=29
+
+// particle
+std::vector<Particle*> particles;
+shader_program_t* particleShader;
+particleSystem_t particleSystem;
+float rate = 1.0; // rate of particle generation per frame
+GLuint ParticleVBO, ParticleVAO;
 
 // shader programs 
 int shaderProgramIndex = 6; // final project
 std::vector<shader_program_t*> shaderPrograms;
-shader_program_t* cubemapShader;
 
 // additional dependencies
 light_t light;
@@ -69,7 +122,7 @@ glm::mat4 helicopterModel;
 glm::mat4 helicopterBladeModel;
 glm::mat4 cameraModel;
 
-//final project
+// bomb model
 model_t bomb;
 glm::mat4 bombModel;
 auto startTime = std::chrono::high_resolution_clock::now();
@@ -80,7 +133,7 @@ float expansionStartTime = 6.0;
 float expansionDuration = 12.0;
 float expansionScale = 1.0;
 float expandSpeed = 10.0;
-Expansion bombExpansion(expansionStartTime, expansionDuration, expandSpeed); // final project
+Expansion bombExpansion(expansionStartTime, expansionDuration, expandSpeed);
 float crackStartTime = 5.0;
 float crackDuration = 3.0;
 float detachStartTime = 8.0;
@@ -91,7 +144,6 @@ glm::vec3 velocity(0.0f, 0.0f, 0.0f);
 
 //////////////////////////////////////////////////////////////////////////
 // Parameter setup, 
-// You can change any of the settings if you want
 void camera_setup(){
     camera.position = glm::vec3(0.0, 20.0, 100.0);
     camera.up = glm::vec3(0.0, 1.0, 0.0);
@@ -111,12 +163,48 @@ void material_setup(){
     material.specular = glm::vec3(0.7);
     material.gloss = 10.5;
 }
-//////////////////////////////////////////////////////////////////////////
 
-void model_setup(){
+void particle_model_setup() {
+    /* ======================== particle system ========================*/
+    particleSystem.position = glm::vec3(0, 0, 0);
+    particleSystem.incident = glm::vec3(0, 0.5, 0);                 // direction for emit direction and velocity
+    particleSystem.normal = glm::normalize(glm::vec3(0, 1, 0));     // spread direction
+    particleSystem.acceleration = glm::vec3(0, -0.1, 0);
+    particleSystem.baseSize = 0.15f;                                 // size of particle, will be randomized later
+    particleSystem.baseLifetime = 100.0f;                           // lifetime of particle, will be randomized later
+    particleSystem.generateParticleNumeber = 4 ;
+    particleSystem.randomFactor = 0.05f;
 
-// Load the object and texture for each model here 
+    /* ======================== VAO, VBO =======================*/
+    float vertices[] = { 0.0f, 1.0f, 0.0f }; // real position of emitter
 
+    glGenVertexArrays(1, &ParticleVAO);
+    glBindVertexArray(ParticleVAO);
+
+    glGenBuffers(1, &ParticleVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, ParticleVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+void particle_shader_setup(){
+    std::string vpath = shaderDir + "particle.vert";
+    std::string gpath = shaderDir + "particle.geom";
+    std::string fpath = shaderDir + "particle.frag";
+    particleShader = new shader_program_t();
+    particleShader->create();
+    particleShader->add_shader(vpath, GL_VERTEX_SHADER);
+    particleShader->add_shader(gpath, GL_GEOMETRY_SHADER);
+    particleShader->add_shader(fpath, GL_FRAGMENT_SHADER);
+    particleShader->link_shader();
+}
+
+void bomb_model_setup(){
 #if defined(__linux__) || defined(__APPLE__)
     std::string objDir = "../../src/asset/obj/";
     std::string textureDir = "../../src/asset/texture/";
@@ -124,21 +212,6 @@ void model_setup(){
     std::string objDir = "..\\..\\src\\asset\\obj\\";
     std::string textureDir = "..\\..\\src\\asset\\texture\\";
 #endif
-    // helicopterModel = glm::mat4(1.0f);
-
-    // helicopter.position = glm::vec3(0.0f, -50.0f, 0.0f);
-    // helicopter.scale = glm::vec3(0.1f, 0.1f, 0.1f);
-    // helicopter.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
-    // helicopter.object = new Object(objDir + "helicopter_body.obj");
-    // helicopter.object->load_to_buffer();
-    // helicopter.object->load_texture(textureDir + "helicopter_red.jpg");
-
-    // helicopterBlade.position = helicopter.position;
-    // helicopterBlade.scale = helicopter.scale;
-    // helicopterBlade.rotation = helicopter.rotation;
-    // helicopterBlade.object = new Object(objDir + "helicopter_blade.obj");
-    // helicopterBlade.object->load_to_buffer();
-    // helicopterBlade.object->load_texture(textureDir + "helicopter_red.jpg");
 
     //final project
     bombModel = glm::mat4(1.0f);
@@ -150,17 +223,8 @@ void model_setup(){
     bomb.object->load_texture(textureDir + "missile_baseColor.png");
 }
 
-
-void shader_setup(){
-
-// Setup the shader program for each shading method
-
-#if defined(__linux__) || defined(__APPLE__)
-    std::string shaderDir = "../../src/shaders/";
-#else
-    std::string shaderDir = "..\\..\\src\\shaders\\";
-#endif
-
+void bomb_shader_setup(){
+    // Setup the shader program for each shading method
     std::vector<std::string> shadingMethod = {
         "default",                              // default shading
         "bling-phong", "gouraud", "metallic",   // addional shading effects (basic)
@@ -187,63 +251,129 @@ void shader_setup(){
     }
 }
 
+void ground_model_setup() {
+    groundModel = glm::mat4(1.0f);
+    ground.position = glm::vec3(0.0f, -0.5f, 0.0f);         
+    // ground.scale = glm::vec3(1000.0f, 1000.0f, 1000.0f); // for video show
+    ground.scale = glm::vec3(10.0f, 10.0f, 10.0f);          // for test
+    ground.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
+
+    for (int i = 0; i < groundNames.size(); i++) {
+        std::string texturePath = textureDir + groundNames[i] + ".jpg";
+        GLuint groundTexture;
+        glGenTextures(1, &groundTexture);
+        glBindTexture(GL_TEXTURE_2D, groundTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        load_image(texturePath);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        groundTextures.push_back(groundTexture);
+    }
+}
+
+void load_image(std::string texturePath){
+    int width, height, nrChannels;
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char* data = stbi_load(texturePath.c_str(), &width, &height, &nrChannels, 0);
+    if (data) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    } else {
+        std::cout << "Failed to load texture" << std::endl;
+    }
+    stbi_image_free(data);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void ground_shader_setup(){
+    std::string vpath = shaderDir + "ground.vert";
+    std::string fpath = shaderDir + "ground.frag";
+    groundShader = new shader_program_t();
+    groundShader->create();
+    groundShader->add_shader(vpath, GL_VERTEX_SHADER);
+    groundShader->add_shader(fpath, GL_FRAGMENT_SHADER);
+    groundShader->link_shader();
+
+    glGenVertexArrays(1, &groundVAO);
+    glGenBuffers(1, &groundVBO);
+
+    glBindVertexArray(groundVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, groundVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+
+    // Position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Texture coordinate attribute
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+}
 
 void cubemap_setup(){
-
-// Setup all the necessary things for cubemap rendering
-// Including: cubemap texture, shader program, VAO, VBO
-
+    for (int i = 0 ; i < cubeNames.size() ; i ++) {
+        std::string cubeName = cubeNames[i] ;
+        // Setup all the necessary things for cubemap rendering
+        // Including: cubemap texture, shader program, VAO, VBO
 #if defined(__linux__) || defined(__APPLE__)
-    std::string cubemapDir = "../../src/asset/texture/skybox/";
-    std::string shaderDir = "../../src/shaders/";
+        std::string cubemapDir = "../../src/asset/texture/" + cubeName + "/";
 #else
-    std::string cubemapDir = "..\\..\\src\\asset\\texture\\skybox\\";
-    std::string shaderDir = "..\\..\\src\\shaders\\";
+        std::string cubemapDir = "..\\..\\src\\asset\\texture\\" + cubeName + "\\";
 #endif
 
-    // setup texture for cubemap
-    std::vector<std::string> faces
-    {
-        cubemapDir + "right.jpg",
-        cubemapDir + "left.jpg",
-        cubemapDir + "top.jpg",
-        cubemapDir + "bottom.jpg",
-        cubemapDir + "front.jpg",
-        cubemapDir + "back.jpg"
-    };
-    cubemapTexture = loadCubemap(faces);   
+        // setup texture for cubemap
+        std::vector<std::string> faces
+        {
+            cubemapDir + "right.jpg",
+            cubemapDir + "left.jpg",
+            cubemapDir + "top.jpg",
+            cubemapDir + "bottom.jpg",
+            cubemapDir + "front.jpg",
+            cubemapDir + "back.jpg"
+        };
+        unsigned int cubemapTexture = loadCubemap(faces);   
 
-    // setup shader for cubemap
-    std::string vpath = shaderDir + "cubemap.vert";
-    std::string fpath = shaderDir + "cubemap.frag";
-    
-    cubemapShader = new shader_program_t();
-    cubemapShader->create();
-    cubemapShader->add_shader(vpath, GL_VERTEX_SHADER);
-    cubemapShader->add_shader(fpath, GL_FRAGMENT_SHADER);
-    cubemapShader->link_shader();
+        // setup shader for cubemap
+        std::string vpath = shaderDir + "cubemap.vert";
+        std::string fpath = shaderDir + "cubemap.frag";
+        
+        shader_program_t* cubemapShader = new shader_program_t();
+        cubemapShader->create();
+        cubemapShader->add_shader(vpath, GL_VERTEX_SHADER);
+        cubemapShader->add_shader(fpath, GL_FRAGMENT_SHADER);
+        cubemapShader->link_shader();
 
-    glGenVertexArrays(1, &cubemapVAO);
-    glGenBuffers(1, &cubemapVBO);
-    glBindVertexArray(cubemapVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, cubemapVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cubemapVertices), &cubemapVertices, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glBindVertexArray(0);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+        glGenVertexArrays(1, &cubemapVAOs[i]);
+        glGenBuffers(1, &cubemapVBOs[i]);
+        glBindVertexArray(cubemapVAOs[i]);
+        glBindBuffer(GL_ARRAY_BUFFER, cubemapVBOs[i]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(cubemapVertices), &cubemapVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glBindVertexArray(0);
+        glActiveTexture(GL_TEXTURE1 + i);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
+        cubemapTextures.push_back(cubemapTexture);
+        cubemapShaders.push_back(cubemapShader);
+    }
 }
 
 void setup(){
-
     // Initialize shader model camera light material
     light_setup();
-    model_setup();
-    shader_setup();
+    bomb_model_setup();
+    bomb_shader_setup();
+    ground_model_setup();
+    ground_shader_setup();
     camera_setup();
     cubemap_setup();
     material_setup();
+    particle_model_setup();
+    particle_shader_setup();
 
     // Enable depth test, face culling ...
     glEnable(GL_DEPTH_TEST);
@@ -264,48 +394,67 @@ void setup(){
     // }, nullptr);
 }
 
+void makeParticles(particleSystem_t* system) {
+	unsigned seed = std::chrono::steady_clock::now().time_since_epoch().count();
+	std::default_random_engine generator(seed);
+	ParticleCreateInfo createInfo;
+	createInfo.acceleration = system->acceleration;
+	createInfo.color = glm::vec3(1.0f, 0.0f, 0.0f); // base is red 
+	createInfo.position = system->position;
+
+	for (int i = 0; i < system->generateParticleNumeber; ++i) {
+		float x = float(generator() % 100) / 50.f - 1.0f;
+		float y = float(generator() % 100) / 50.f - 1.0f;
+		float z = float(generator() % 100) / 50.f - 1.0f;
+
+		glm::vec3 randomization = glm::vec3(x, y, z);
+		glm::vec3 randomizedNormal = glm::normalize(system->randomFactor * randomization + system->normal);
+
+		x = float(generator() % 100) / 10.0f;
+		glm::vec3 outgoing = x * glm::reflect(system->incident, randomizedNormal);
+
+		createInfo.velocity = outgoing;
+        createInfo.color += glm::vec3(0.0f, 0.1f, 0.0f) * (float(generator() % 100) / 100.0f); // add tobe yellow
+
+        x = system->baseSize + (float(generator() % 100) - 50.0f) / 50.0f * system->baseSize;
+        createInfo.size = x ;
+
+		x = system->baseLifetime + (float(generator() % 100) - 50.0f) / 50.0f * system->baseLifetime;
+		createInfo.lifetime = x;
+
+		particles.push_back(new Particle(&createInfo));
+	}
+}
+
 void update(){
-    
-// Update the heicopter position, camera position, rotation, etc.
 
-    // helicopter.position.y += moveDir;
-    // if(helicopter.position.y > 20.0 || helicopter.position.y < -100.0){
-    //     moveDir = -moveDir;
-    // }
-
-    // helicopterBlade.rotation.y += 10;
-    // if(helicopterBlade.rotation.y > 360.0){
-    //     helicopterBlade.rotation.y = 0.0;
-    // }
-
-    // helicopterModel = glm::mat4(1.0f);
-    // helicopterModel = glm::scale(helicopterModel, helicopter.scale);
-    // helicopterModel = glm::translate(helicopterModel, helicopter.position);
-
-    // helicopterBladeModel = glm::rotate(helicopterModel, glm::radians(helicopterBlade.rotation.y), glm::vec3(0.0, 1.0, 0.0));
-
-    // final project  
+    // Update model matrix
     bombModel = glm::mat4(1.0f);
     bombModel = glm::scale(bombModel, bomb.scale * expansionScale);
     bombModel = glm::translate(bombModel, bomb.position);
     bombModel = glm::rotate(bombModel, glm::radians(bomb.rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
     bombModel = glm::rotate(bombModel, glm::radians(bomb.rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
 
+    // Update camera model matrix
     camera.rotationY = (camera.rotationY > 360.0) ? 0.0 : camera.rotationY;
     cameraModel = glm::mat4(1.0f);
     cameraModel = glm::rotate(cameraModel, glm::radians(camera.rotationY), camera.up);
     cameraModel = glm::translate(cameraModel, camera.position);
 
-    currentTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<float> duration = currentTime - startTime ;
-    float deltaTime = duration.count() ;
+    groundModel = glm::mat4(1.0f);
+    groundModel = glm::scale(groundModel, ground.scale);
+    groundModel = glm::translate(groundModel, ground.position);
 
-    velocity.y -= gravity * deltaTime;
-    if (bomb.position.y <= 0.0f) {
-        bomb.position.y = 0.0f;
-        velocity.y = 0.0f;
-    }
-    bomb.position += velocity * deltaTime;
+    makeParticles(&particleSystem);
+	for (int i = 0; i < particles.size(); ++i) {
+		Particle* particle = particles[i];
+		particle->update(rate);
+
+		if (particle->t >= particle->lifetime) {
+			delete particle;
+			particles.erase(particles.begin() + i--);
+		}
+	}
 }
 
 void render(){
@@ -326,16 +475,8 @@ void render(){
     
     // TODO 1
     // Set uniform value for each shader program
-    if (shaderProgramIndex == 1) {
-        light.specular = glm::vec3(3.0);
-        material.gloss = 10.5;
-    } else if (shaderProgramIndex == 2) {
-        light.specular = glm::vec3(4.0);
-        material.gloss = 48;
-    } else {
-        light.specular = glm::vec3(1.0);
-        material.gloss = 10.5;
-    }
+    light.specular = glm::vec3(1.0);
+    material.gloss = 10.5;
     // camera uniform value
     shaderPrograms[shaderProgramIndex]->set_uniform_value("camera_position", cameraModel[3]) ;
     // light uniform value
@@ -350,16 +491,7 @@ void render(){
     shaderPrograms[shaderProgramIndex]->set_uniform_value("material_gloss", material.gloss) ;
     shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
     
-    // reflection uniform value    
-    //shaderPrograms[shaderProgramIndex]->set_uniform_value("cubemap", 1) ;
-    // End of TODO 1
-
-    // helicopter.object->render();
-    // shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterBladeModel);
-    // helicopterBlade.object->render();
-    // shaderPrograms[shaderProgramIndex]->release();
-    
-    // final project
+    /*======================== pre-explosion rendering ========================*/ 
     bomb.object->render() ;
     std::chrono::duration<float> duration = currentTime - startTime ;
     float time = duration.count() ;
@@ -376,24 +508,49 @@ void render(){
     shaderPrograms[shaderProgramIndex]->set_uniform_value("detachDuration", detachDuration) ;
     shaderPrograms[shaderProgramIndex]->release() ;
 
+    /*======================== Ground rendering ========================*/ 
+    glDisable(GL_CULL_FACE); 
+    groundShader->use();
+    int groundTextureUnit = 0;
+    glActiveTexture(GL_TEXTURE0 + groundTextureUnit);
+    glBindTexture(GL_TEXTURE_2D, groundTextures[groundTextureIndex]);
+    groundShader->set_uniform_value("model", groundModel);
+    groundShader->set_uniform_value("view", view);
+    groundShader->set_uniform_value("projection", projection);
+    groundShader->set_uniform_value("texture1", groundTextureUnit);
+    glBindVertexArray(groundVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+    groundShader->release();
+    glEnable(GL_CULL_FACE); 
     
-    // TODO 4-2 
-    // Rendering cubemap environment
-    // Hint:
-    // 1. All the needed things are already set up in cubemap_setup() function.
-    // 2. You can use the vertices in cubemapVertices provided in the header/cube.h
-    // 3. You need to set the view, projection matrix.
-    // 4. Use the cubemapShader to render the cubemap 
-    //    (refer to the above code to get an idea of how to use the shader program)
-    // cubemapShader->use() ;
-    // glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
-    // cubemapShader->set_uniform_value("view", cube_view) ;
-    // cubemapShader->set_uniform_value("projection", projection) ;
-    // cubemapShader->set_uniform_value("cubemap", 1) ;
-    // glBindVertexArray(cubemapVAO) ;
-    // glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
-    // glBindVertexArray(0) ;
-    // cubemapShader->release() ;
+    /*======================== cubemap environment rendering ========================*/ 
+    cubemapShaders[cubemapIndex]->use() ;
+    glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
+    cubemapShaders[cubemapIndex]->set_uniform_value("view", cube_view) ;
+    cubemapShaders[cubemapIndex]->set_uniform_value("projection", projection) ;
+    cubemapShaders[cubemapIndex]->set_uniform_value("cubemap", int(cubemapIndex)) ;
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTextures[cubemapIndex]) ;
+    glBindVertexArray(cubemapVAOs[cubemapIndex]) ;
+    glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
+    glBindVertexArray(0) ;
+    cubemapShaders[cubemapIndex]->release() ;
+
+    /*======================== Particle rendering ========================*/
+    glDisable(GL_CULL_FACE); 
+    particleShader->use();
+    particleShader->set_uniform_value("view", view);
+    particleShader->set_uniform_value("projection", projection);
+	for (Particle* particle : particles) {
+        particleShader->set_uniform_value("model", particle->modelTransform);
+        particleShader->set_uniform_value("particleSize", particle->size);
+        particleShader->set_uniform_value("tint", particle->tint);  // fading color, not work temporarily use fixed variable in fragment shadere
+        glBindVertexArray(ParticleVAO);
+		glDrawArrays(GL_POINTS, 0, 1);
+        glBindVertexArray(0);
+	}
+    particleShader->release();
+    glEnable(GL_CULL_FACE); 
 }
 
 
@@ -410,7 +567,7 @@ int main() {
 #endif
 
     // glfw window creation
-    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Final-Project", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "HW4", NULL, NULL);
     if (window == NULL) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -471,7 +628,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     if (key == GLFW_KEY_5 && (action == GLFW_REPEAT || action == GLFW_PRESS))
         shaderProgramIndex = 5;
     if (key == GLFW_KEY_6 && (action == GLFW_REPEAT || action == GLFW_PRESS))
-        shaderProgramIndex = 6; // final project
+        shaderProgramIndex = 6; // pre-explosion
 
     // camera movement
     float cameraSpeed = 0.5f;
@@ -483,7 +640,22 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         camera.rotationY -= 10.0;
     if (key == GLFW_KEY_D && (action == GLFW_REPEAT || action == GLFW_PRESS))
         camera.rotationY += 10.0;
-    
+
+    // cubemap selection
+    if (key == GLFW_KEY_Z && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        cubemapIndex = 0;// skybox
+    if (key == GLFW_KEY_X && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        cubemapIndex = 1 ; // grass
+    if (key == GLFW_KEY_C && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        cubemapIndex = 2; // mars
+
+    // ground texture selection
+    if (key == GLFW_KEY_V && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        groundTextureIndex = 0; // grass
+    if (key == GLFW_KEY_B && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        groundTextureIndex = 1; // sand
+    if (key == GLFW_KEY_N && (action == GLFW_REPEAT || action == GLFW_PRESS))
+        groundTextureIndex = 2; // stones
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes

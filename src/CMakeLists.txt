@@ -4,6 +4,7 @@ add_executable(ICG_2024_HW4
 "shader.cpp"
 "object.cpp"
 "expansion.cpp"
+"particle.cpp"
 ) #列所有的cpp
 target_link_libraries(ICG_2024_HW4
 glfw
