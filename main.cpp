@@ -305,20 +305,20 @@ void update(){
         shake_rotate -= -360.0;
     }
     
-    float deltaTime = 0.016f;
+    float deltaTime = 0.02f;
 
-    for (auto& p : particles) {
-        if (p.life > 0.0f) {
-            p.position += p.velocity * deltaTime; // 更新位置
-            p.velocity.y -= 9.8f * deltaTime;     // 模擬重力
-            p.life -= deltaTime;                 // 減少生命時間
+    for (int i = 0;i < particles.size();i++) {
+        if (particles[i].life > 0.0f) {
+            particles[i].position += particles[i].velocity * deltaTime; // 更新位置
+            particles[i].velocity.y -= 9.8f * deltaTime;     // 模擬重力
+            particles[i].life -= deltaTime;
+            particles[i].size += 0.05;                 // 減少生命時間
         }
     }
 
 }
 
 void render(){
-    std::cout << "render\n";
     glClearColor(0.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -394,19 +394,27 @@ void render(){
         SmokeShader->use();
         SmokeShader->set_uniform_value("view", view);
         SmokeShader->set_uniform_value("projection", projection);
-        shaderPrograms[0]->set_uniform_value("u_time", Time);
-        shaderPrograms[0]->set_uniform_value("blurStrength", blurStrength);
-        shaderPrograms[0]->set_uniform_value("shake", shake);
+        SmokeShader->set_uniform_value("u_time", Time);
+        SmokeShader->set_uniform_value("blurStrength", blurStrength);
+        SmokeShader->set_uniform_value("shake", shake);
+        SmokeShader->set_uniform_value("light_pos", light.position);
+        SmokeShader->set_uniform_value("redColor",glm::vec3(1.0,0.0,0.0));
+        SmokeShader->set_uniform_value("yellowColor",glm::vec3(1.0, 0.5, 0.0));
+        SmokeShader->set_uniform_value("grayColor",glm::vec3(0.5, 0.5, 0.5));
+        
+
         for (const auto& p : particles) {
+            
             if (p.life > 0.0f) {
+                
                 glm::mat4 model = glm::translate(glm::mat4(1.0f), p.position);
                 smokemodel = glm::scale(model, glm::vec3(p.size)); // 調整大小
+                SmokeShader->set_uniform_value("objectSize",p.size);
                 SmokeShader->set_uniform_value("model", smokemodel);
                 SmokeShader->set_uniform_value("alpha", p.life); // 用生命時間作為透明度
 
                 Smoke.object->render(); // 假設 Smoke 是雲霧模型
             }
-
         }
 
         SmokeShader->release();
@@ -483,7 +491,10 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         shake = (shake + 1) % 2;
     if (key == GLFW_KEY_2 && (action == GLFW_REPEAT || action == GLFW_PRESS)) 
         {
-            smoke = (smoke + 1) % 2;
+            smoke = 0;
+            shake = 0;
+            smoke = 1;
+            shake = 1;
             if(smoke)
             {
                 particles.clear();
@@ -495,8 +506,9 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
                         (float(rand()) / RAND_MAX) * 10.0f,         // 隨機 Y
                         (float(rand()) / RAND_MAX - 0.5f) * 10.0f  // 隨機 Z
                     );
-                    p.life = float(rand()) / RAND_MAX * 2.0f; // 1~2秒壽命
-                    p.size = (i / 10) * 0.05 + 0.5f + float(rand()) / RAND_MAX; // 隨機大小
+                    p.life = 2.0 - (i + 1) * 0.01 * 1.5; // 1~2秒壽命
+                    p.size = (i + 1) * 0.01 + 0.7f; // 隨機大小
+                    std::cout << p.life << " " << p.size << '\n';
                     particles.push_back(p);
                 }
             }

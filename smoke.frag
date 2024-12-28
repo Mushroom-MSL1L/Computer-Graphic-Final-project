@@ -1,50 +1,57 @@
 #version 330 core
 in vec2 TexCoord;
 out vec4 FragColor;
+in vec3 FragPos;
+in vec3 Normal;
 
 uniform sampler2D cloudTexture;
 uniform float alpha;
-uniform float u_time;
 uniform float blurStrength;
 uniform int shake;
+uniform vec3 light_pos;
+uniform vec3 redColor;
+uniform vec3 yellowColor;
+uniform vec3 grayColor;
+uniform float objectSize;
 
 void main() {
-    vec4 texColor;
-
-    if (shake == 0) {
-        texColor = texture(cloudTexture, TexCoord);
-        FragColor = vec4(texColor.rgb, texColor.a * alpha);
+    
+    vec3 baseColor;
+    if (objectSize <= 0.55) {
+        // 小尺寸：紅色 (完全紅)
+        baseColor = redColor;
+    } else if (objectSize <= 2.1) {
+        // 中尺寸：紅到黃過渡
+        float factor = (objectSize - 0.55) / (2.1 - 0.55);
+        baseColor = mix(redColor, yellowColor, factor);
+    } else if (objectSize <= 2.5) {
+        // 大尺寸：黃到灰過渡
+        float factor = (objectSize - 2.1) / (2.5 - 2.1);
+        baseColor = mix(yellowColor, grayColor, factor);
     } else {
-        // 基於時間的晃動偏移
-        float offset = sin(u_time * 50.0) * 0.005;
-        vec2 shakenTexCoords = clamp(TexCoord + vec2(offset, -offset), vec2(0.0), vec2(1.0));
-
-
-        // 增加多方向模糊偏移
-        /*vec2 offsets[9] = vec2[](
-            vec2(0.0, 0.0),
-            vec2(blurStrength, 0.0),
-            vec2(-blurStrength, 0.0),
-            vec2(0.0, blurStrength),
-            vec2(0.0, -blurStrength),
-            vec2(blurStrength, blurStrength),
-            vec2(-blurStrength, blurStrength),
-            vec2(blurStrength, -blurStrength),
-            vec2(-blurStrength, -blurStrength)
-        );*/
-
-        // 累加所有偏移的顏色值
-        //vec4 colorSum = vec4(0.0);
-        /*for (int i = 0; i < 9; ++i) {
-            vec2 clampedCoords = clamp(shakenTexCoords + offsets[i], 0.0, 1.0);
-            texColor = texture(cloudTexture, clampedCoords);
-            colorSum += vec4(texColor.rgb, texColor.a * alpha);
-        }*/
-
-        // 計算平均顏色
-        //FragColor = colorSum / 9.0;
-        FragColor = texture(cloudTexture, shakenTexCoords);
+        // 超大尺寸：完全灰
+        baseColor = grayColor;
     }
 
-    
+   
+    vec3 lightDir = normalize(light_pos - FragPos);
+    vec3 norm = normalize(Normal);
+    float intensity = max(dot(norm, lightDir), 0.0);
+
+    if (intensity > 0.8) intensity = 1.0;
+    else if (intensity > 0.5) intensity = 0.7;
+    else if (intensity > 0.2) intensity = 0.4;
+    else intensity = 0.1;
+
+
+    vec3 finalColor = baseColor  * intensity;
+
+    vec3 blurColor = finalColor;
+    if (shake != 0) {
+        // 使用法線來模擬模糊強度
+        float blurFactor = length(Normal); // 法線長度決定模糊程度
+        blurColor = mix(finalColor, finalColor * 0.5, blurFactor * blurStrength);
+    }
+
+    FragColor = vec4(blurColor, alpha);
 }
