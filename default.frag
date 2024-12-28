@@ -19,22 +19,24 @@ void main() {
         vec2 shakenTexCoords = TexCoord + vec2(offset, -offset);
 
         // 定義周圍方向偏移量
-        vec2 offsets[4] = vec2[](
+        vec2 offsets[9] = vec2[](
+            vec2(0.0, 0.0),
             vec2(blurStrength, 0.0),
             vec2(-blurStrength, 0.0),
             vec2(0.0, blurStrength),
-            vec2(0.0, -blurStrength)
+            vec2(0.0, -blurStrength),
+            vec2(blurStrength, blurStrength),
+            vec2(-blurStrength, blurStrength),
+            vec2(blurStrength, -blurStrength),
+            vec2(-blurStrength, -blurStrength)
         );
 
-        // 初始化顏色
-        vec4 color = texture(ourTexture, shakenTexCoords);
-
-        // 累加采樣的顏色
-        for (int i = 0; i < 4; ++i) {
-            color += texture(ourTexture, shakenTexCoords + offsets[i]);
+        vec4 colorSum = vec4(0.0);
+        for (int i = 0; i < 9; ++i) {
+            colorSum += texture(ourTexture, shakenTexCoords + offsets[i]);
         }
 
         // 計算平均值
-        FragColor = color / 5.0;
+        FragColor = colorSum / 9.0;
     }
 }
