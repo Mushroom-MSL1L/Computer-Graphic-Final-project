@@ -163,7 +163,7 @@ void shader_setup(){
         "default",                              // default shading
         "bling-phong", "gouraud", "metallic",   // addional shading effects (basic)
         "glass_schlick", "glass_empricial",     // addional shading effects (advanced)
-        "final"                                 // final project
+        "pre-explosion"                                 // final project
     };
 
     for(int i=0; i<shadingMethod.size(); i++){
