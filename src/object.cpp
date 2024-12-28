@@ -2,7 +2,7 @@
 #include <glad/glad.h>
 #include "header/stb_image.h"
 
-void Object::load_texture(const std::string &filepath){
+unsigned int Object::load_texture(const std::string &filepath){
     glEnable(GL_TEXTURE_2D);
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
@@ -20,6 +20,7 @@ void Object::load_texture(const std::string &filepath){
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     stbi_image_free(data);
+    return texture;
 }
 
 void Object::load_to_buffer(){

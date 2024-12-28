@@ -149,7 +149,7 @@ public:
 
     };
     void load_to_buffer();
-    void load_texture(const string& filepath);
+    unsigned int load_texture(const string& filepath);
     void render();
     
 private:

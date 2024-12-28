@@ -125,6 +125,7 @@ glm::mat4 cameraModel;
 // bomb model
 model_t bomb;
 glm::mat4 bombModel;
+unsigned int bombTexture;
 auto startTime = std::chrono::high_resolution_clock::now();
 auto currentTime = startTime;
 float sparkStartTime = 8.0;
@@ -220,7 +221,7 @@ void bomb_model_setup(){
     bomb.rotation = glm::vec3(90.0f, 0.0f, 0.0f);
     bomb.object = new Object(objDir + "missile.obj");
     bomb.object->load_to_buffer();
-    bomb.object->load_texture(textureDir + "missile_baseColor.png");
+    bombTexture = bomb.object->load_texture(textureDir + "missile_baseColor.png");
 }
 
 void bomb_shader_setup(){
@@ -440,11 +441,11 @@ void update(){
     cameraModel = glm::mat4(1.0f);
     cameraModel = glm::rotate(cameraModel, glm::radians(camera.rotationY), camera.up);
     cameraModel = glm::translate(cameraModel, camera.position);
-
+    // Update ground model matrix
     groundModel = glm::mat4(1.0f);
     groundModel = glm::scale(groundModel, ground.scale);
     groundModel = glm::translate(groundModel, ground.position);
-
+    // Update particle system
     makeParticles(&particleSystem);
 	for (int i = 0; i < particles.size(); ++i) {
 		Particle* particle = particles[i];
@@ -455,6 +456,16 @@ void update(){
 			particles.erase(particles.begin() + i--);
 		}
 	}
+    // Update bomb position
+    currentTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float> duration = currentTime - startTime ;
+    float deltaTime = duration.count() ;
+    velocity.y -= gravity * deltaTime;
+    if (bomb.position.y <= 0.0f) {
+        bomb.position.y = 0.0f;
+        velocity.y = 0.0f;
+    }
+    bomb.position += velocity * deltaTime;
 }
 
 void render(){
@@ -473,7 +484,6 @@ void render(){
     shaderPrograms[shaderProgramIndex]->set_uniform_value("view", view);
     shaderPrograms[shaderProgramIndex]->set_uniform_value("projection", projection);
     
-    // TODO 1
     // Set uniform value for each shader program
     light.specular = glm::vec3(1.0);
     material.gloss = 10.5;
@@ -499,6 +509,8 @@ void render(){
         bombExpansion.update(time);
         expansionScale = bombExpansion.getScale();
     }
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, bombTexture);
     shaderPrograms[shaderProgramIndex]->set_uniform_value("time", time) ;
     shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkStartTime", sparkStartTime) ;
     shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkDuration", sparkDuration) ;
@@ -506,6 +518,7 @@ void render(){
     shaderPrograms[shaderProgramIndex]->set_uniform_value("crackDuration", crackDuration) ;
     shaderPrograms[shaderProgramIndex]->set_uniform_value("detachStartTime", detachStartTime) ;
     shaderPrograms[shaderProgramIndex]->set_uniform_value("detachDuration", detachDuration) ;
+    shaderPrograms[shaderProgramIndex]->set_uniform_value("ourTexture", 1) ;
     shaderPrograms[shaderProgramIndex]->release() ;
 
     /*======================== Ground rendering ========================*/ 
