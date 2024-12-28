@@ -11,9 +11,15 @@ in vec3 effectColor;
 
 uniform sampler2D ourTexture ;
 uniform samplerCube cubemap ;
-uniform vec3 light_position ;
 uniform vec3 camera_position ;
+uniform float material_gloss ;
+uniform vec3 light_ambient ;
+uniform vec3 light_diffuse ;
+uniform vec3 light_position ;
+uniform vec3 light_specular ;
 uniform float time;
+uniform float crackStartTime;
+uniform float crackDuration;
 
 void main()
 {
@@ -27,12 +33,19 @@ void main()
         return;
     }
     else if(isEffect > 0.0){
-        vec3 light_direction = normalize(FragPosition - camera_position) ;
-        vec3 reflection = normalize(light_direction - 2 * dot(light_direction, FragNormal) * FragNormal) ;
-        vec3 reflectionTexture = texture(cubemap, reflection).rgb ;
+        vec4 textureColor = texture(ourTexture, TexCoord) ;
+        vec3 light_direction = normalize(light_position - FragPosition) ;
+        vec3 view_direction = normalize(camera_position - FragPosition) ;
 
-        float bidirectionReflection = max(dot(-light_direction, FragNormal) * light_intensity , 0.0) + bias ;
-        FragColor = vec4(alpha * bidirectionReflection * effectColor + (1.0 - alpha) * reflectionTexture, 1.0) ;
+        vec3 Ambient = light_ambient ;
+        vec3 Diffuse = light_diffuse * max(dot(light_direction, FragNormal), 0.0) ;
+        
+        vec3 H = normalize(light_direction + view_direction) ;
+        vec3 Specular = light_specular * pow(max(dot(FragNormal, H), 0.0), material_gloss) ;
+
+        vec3 light =  Ambient + Diffuse + Specular ; 
+        vec3 result = light * effectColor ;
+	    FragColor = vec4(result, 1.0) ;
         return;
     }
     if (isSpark > 0.0) {
@@ -41,10 +54,17 @@ void main()
         return;
     }
 
-    vec3 light_direction = normalize(FragPosition - camera_position) ;
-    vec3 reflection = normalize(light_direction - 2 * dot(light_direction, FragNormal) * FragNormal) ;
-    vec3 reflectionTexture = texture(cubemap, reflection).rgb ;
+    vec4 textureColor = texture(ourTexture, TexCoord) ;
+	vec3 light_direction = normalize(light_position - FragPosition) ;
+	vec3 view_direction = normalize(camera_position - FragPosition) ;
 
-    float bidirectionReflection = max(dot(-light_direction, FragNormal) * light_intensity , 0.0) + bias ;
-    FragColor = vec4(alpha * bidirectionReflection * vec3(0.1, 0.1, 0.1) + (1.0 - alpha) * reflectionTexture, 1.0) ;
+	vec3 Ambient = light_ambient ;
+	vec3 Diffuse = light_diffuse * max(dot(light_direction, FragNormal), 0.0) ;
+	
+	vec3 H = normalize(light_direction + view_direction) ;
+	vec3 Specular = light_specular * pow(max(dot(FragNormal, H), 0.0), material_gloss) ;
+
+	vec3 light =  Ambient + Diffuse + Specular ; 
+	vec3 result = light * textureColor.rgb ;
+	FragColor = vec4(result, textureColor.a) ;
 }

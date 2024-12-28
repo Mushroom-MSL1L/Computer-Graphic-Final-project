@@ -144,9 +144,10 @@ void model_setup(){
     bombModel = glm::mat4(1.0f);
     bomb.position = glm::vec3(0.0f, 7.0f, 0.0f);
     bomb.scale = glm::vec3(10.0f, 10.0f, 10.0f);
-    bomb.object = new Object(objDir + "earth.obj");
+    bomb.rotation = glm::vec3(90.0f, 0.0f, 0.0f);
+    bomb.object = new Object(objDir + "missile.obj");
     bomb.object->load_to_buffer();
-    bomb.object->load_texture(textureDir + "earth.jpg");
+    bomb.object->load_texture(textureDir + "missile_baseColor.png");
 }
 
 
@@ -287,6 +288,7 @@ void update(){
     bombModel = glm::mat4(1.0f);
     bombModel = glm::scale(bombModel, bomb.scale * expansionScale);
     bombModel = glm::translate(bombModel, bomb.position);
+    bombModel = glm::rotate(bombModel, glm::radians(bomb.rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
     bombModel = glm::rotate(bombModel, glm::radians(bomb.rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
 
     camera.rotationY = (camera.rotationY > 360.0) ? 0.0 : camera.rotationY;
