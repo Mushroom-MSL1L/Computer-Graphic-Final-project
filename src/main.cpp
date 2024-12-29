@@ -109,6 +109,9 @@ GLuint ParticleVBO, ParticleVAO;
 int shaderProgramIndex = 6; // final project
 std::vector<shader_program_t*> shaderPrograms;
 
+// fading shader
+shader_program_t* fadingShader;
+
 // additional dependencies
 light_t light;
 material_t material;
@@ -128,25 +131,43 @@ glm::mat4 bombModel;
 unsigned int bombTexture;
 auto startTime = std::chrono::high_resolution_clock::now();
 auto currentTime = startTime;
-float sparkStartTime = 8.0;
+float sparkStartTime = 10.0;
 float sparkDuration = 10.0;
-float expansionStartTime = 6.0;
-float expansionDuration = 12.0;
+float expansionStartTime = 8.0;
+float expansionDuration = 11.0;
 float expansionScale = 1.0;
 float expandSpeed = 10.0;
 Expansion bombExpansion(expansionStartTime, expansionDuration, expandSpeed);
-float crackStartTime = 5.0;
-float crackDuration = 3.0;
-float detachStartTime = 8.0;
+float crackStartTime = 4.85;
+float crackDuration = 5.15;
+float detachStartTime = 10.0;
 float detachDuration = 10.0;
 float gravity = 1e-4;
 float bounceFactor = 0.3f;
 glm::vec3 velocity(0.0f, 0.0f, 0.0f);
+//explosion
+float explosionTime = 20.0;
+float explosionEndTime = 25.0;
+float particleStartTime = 5.0;
+// fading
+unsigned int quadVAO, quadVBO;
+float quadVertices[] = {
+    // positions     // texture coordinates
+    -1.0f,  1.0f, 0.0f,  0.0f, 1.0f,
+    -1.0f, -1.0f, 0.0f,  0.0f, 0.0f,
+     1.0f, -1.0f, 0.0f,  1.0f, 0.0f,
+
+    -1.0f,  1.0f, 0.0f,  0.0f, 1.0f,
+     1.0f, -1.0f, 0.0f,  1.0f, 0.0f,
+     1.0f,  1.0f, 0.0f,  1.0f, 1.0f
+};
+float fadeDuration = explosionEndTime - explosionTime; // Duration of fade in seconds
+float overlayAlpha;
 
 //////////////////////////////////////////////////////////////////////////
 // Parameter setup, 
 void camera_setup(){
-    camera.position = glm::vec3(0.0, 20.0, 100.0);
+    camera.position = glm::vec3(0.0, 30.0, 100.0);
     camera.up = glm::vec3(0.0, 1.0, 0.0);
     camera.rotationY = 0;
 }
@@ -165,6 +186,14 @@ void material_setup(){
     material.gloss = 10.5;
 }
 
+void update_particle_positionY() {
+    float amplitude = 10.0f;
+    float offset = 40.0f;
+    float frequency = 1.0f;
+
+    particleSystem.position.y = offset + amplitude + amplitude * sin(glfwGetTime() * frequency);
+}
+
 void particle_model_setup() {
     /* ======================== particle system ========================*/
     particleSystem.position = glm::vec3(0, 0, 0);
@@ -173,11 +202,12 @@ void particle_model_setup() {
     particleSystem.acceleration = glm::vec3(0, -0.1, 0);
     particleSystem.baseSize = 0.15f;                                 // size of particle, will be randomized later
     particleSystem.baseLifetime = 100.0f;                           // lifetime of particle, will be randomized later
-    particleSystem.generateParticleNumeber = 4 ;
+    particleSystem.generateParticleNumeber = 10;
     particleSystem.randomFactor = 0.05f;
+    update_particle_positionY();
 
     /* ======================== VAO, VBO =======================*/
-    float vertices[] = { 0.0f, 1.0f, 0.0f }; // real position of emitter
+    float vertices[] = { 0, 0, 0 }; // real position of emitter
 
     glGenVertexArrays(1, &ParticleVAO);
     glBindVertexArray(ParticleVAO);
@@ -205,6 +235,16 @@ void particle_shader_setup(){
     particleShader->link_shader();
 }
 
+void fading_shader_setup(){
+    std::string vpath = shaderDir + "fading.vert";
+    std::string fpath = shaderDir + "fading.frag";
+    fadingShader = new shader_program_t();
+    fadingShader->create();
+    fadingShader->add_shader(vpath, GL_VERTEX_SHADER);
+    fadingShader->add_shader(fpath, GL_FRAGMENT_SHADER);
+    fadingShader->link_shader();
+}
+
 void bomb_model_setup(){
 #if defined(__linux__) || defined(__APPLE__)
     std::string objDir = "../../src/asset/obj/";
@@ -214,7 +254,6 @@ void bomb_model_setup(){
     std::string textureDir = "..\\..\\src\\asset\\texture\\";
 #endif
 
-    //final project
     bombModel = glm::mat4(1.0f);
     bomb.position = glm::vec3(0.0f, 7.0f, 0.0f);
     bomb.scale = glm::vec3(10.0f, 10.0f, 10.0f);
@@ -240,7 +279,7 @@ void bomb_shader_setup(){
         shader_program_t* shaderProgram = new shader_program_t();
         shaderProgram->create();
         shaderProgram->add_shader(vpath, GL_VERTEX_SHADER);
-        // final project
+        // add geometry shader for pre-explosion shading
         if (shadingMethod[i] == "pre-explosion") {
             std::string gpath = shaderDir + shadingMethod[i] + ".geom";
             shaderProgram->add_shader(gpath, GL_GEOMETRY_SHADER);
@@ -255,8 +294,8 @@ void bomb_shader_setup(){
 void ground_model_setup() {
     groundModel = glm::mat4(1.0f);
     ground.position = glm::vec3(0.0f, -0.5f, 0.0f);         
-    // ground.scale = glm::vec3(1000.0f, 1000.0f, 1000.0f); // for video show
-    ground.scale = glm::vec3(10.0f, 10.0f, 10.0f);          // for test
+    ground.scale = glm::vec3(1000.0f, 1000.0f, 1000.0f); // for video show
+    //ground.scale = glm::vec3(10.0f, 10.0f, 10.0f);          // for test
     ground.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
 
     for (int i = 0; i < groundNames.size(); i++) {
@@ -363,6 +402,19 @@ void cubemap_setup(){
     }
 }
 
+void genQuad(){
+    glGenVertexArrays(1, &quadVAO);
+    glGenBuffers(1, &quadVBO);
+    glBindVertexArray(quadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glBindVertexArray(0);
+}
+
 void setup(){
     // Initialize shader model camera light material
     light_setup();
@@ -375,6 +427,9 @@ void setup(){
     material_setup();
     particle_model_setup();
     particle_shader_setup();
+    fading_shader_setup();
+
+    genQuad();
 
     // Enable depth test, face culling ...
     glEnable(GL_DEPTH_TEST);
@@ -441,6 +496,7 @@ void update(){
     cameraModel = glm::mat4(1.0f);
     cameraModel = glm::rotate(cameraModel, glm::radians(camera.rotationY), camera.up);
     cameraModel = glm::translate(cameraModel, camera.position);
+
     // Update ground model matrix
     groundModel = glm::mat4(1.0f);
     groundModel = glm::scale(groundModel, ground.scale);
@@ -459,69 +515,79 @@ void update(){
     // Update bomb position
     currentTime = std::chrono::high_resolution_clock::now();
     std::chrono::duration<float> duration = currentTime - startTime ;
-    float deltaTime = duration.count() ;
-    velocity.y -= gravity * deltaTime;
-    if (bomb.position.y <= 0.0f) {
-        bomb.position.y = 0.0f;
+    float time = duration.count() ;
+    velocity.y -= gravity * time;
+    if (bomb.position.y <= 0.5f) {
+        bomb.position.y = 0.5f;
         velocity.y = 0.0f;
     }
-    bomb.position += velocity * deltaTime;
+    bomb.position += velocity * time;
+
+    float deltaTime = time - crackStartTime;
+    if (time >= crackStartTime && time < detachStartTime) {
+        camera.position.z -= 0.05f * deltaTime;
+    } else if (time >= detachStartTime + 0.1 && time < explosionTime) {
+        camera.position.z += 0.025f * deltaTime;
+    }
 }
 
 void render(){
 
     glClearColor(0.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    // Calculate view, projection matrix
-    glm::mat4 view = glm::lookAt(glm::vec3(cameraModel[3]), glm::vec3(0.0), camera.up);
-    glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
-
-    // Set matrix for view, projection, model transformation
-    shaderPrograms[shaderProgramIndex]->use();
-    //shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterModel);
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("model", bombModel);
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("view", view);
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("projection", projection);
-    
-    // Set uniform value for each shader program
-    light.specular = glm::vec3(1.0);
-    material.gloss = 10.5;
-    // camera uniform value
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("camera_position", cameraModel[3]) ;
-    // light uniform value
-    glm::vec3 lightPositionInCameraSpace = glm::vec3(cameraModel * glm::vec4(light.position, 1.0f));
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_ambient", light.ambient) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_diffuse", light.diffuse) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_position", lightPositionInCameraSpace) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_specular", light.specular) ;
-    // material uniform value 
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_ambient", material.ambient) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_diffuse", material.diffuse) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_gloss", material.gloss) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
-    
-    /*======================== pre-explosion rendering ========================*/ 
-    bomb.object->render() ;
+    // time calculation
     std::chrono::duration<float> duration = currentTime - startTime ;
     float time = duration.count() ;
-    if (time >= expansionStartTime && time <= (expansionStartTime + expansionDuration)) {
-        bombExpansion.update(time);
-        expansionScale = bombExpansion.getScale();
+    
+    // Calculate view, projection matrix
+    glm::mat4 view = glm::lookAt(glm::vec3(cameraModel[3]), glm::vec3(0.0, 20.0, 0.0), camera.up);
+    glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+    if (time < explosionTime){
+        // Set matrix for view, projection, model transformation
+        shaderPrograms[shaderProgramIndex]->use();
+        //shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterModel);
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("model", bombModel);
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("view", view);
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("projection", projection);
+        
+        // Set uniform value for each shader program
+        light.specular = glm::vec3(1.0);
+        material.gloss = 10.5;
+        // camera uniform value
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("camera_position", cameraModel[3]) ;
+        // light uniform value
+        glm::vec3 lightPositionInCameraSpace = glm::vec3(cameraModel * glm::vec4(light.position, 1.0f));
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("light_ambient", light.ambient) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("light_diffuse", light.diffuse) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("light_position", lightPositionInCameraSpace) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("light_specular", light.specular) ;
+        // material uniform value 
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("material_ambient", material.ambient) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("material_diffuse", material.diffuse) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("material_gloss", material.gloss) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
+        bomb.object->render() ;
+    
+        /*======================== pre-explosion rendering ========================*/ 
+        
+        if (time >= expansionStartTime && time <= (expansionStartTime + expansionDuration)) {
+            bombExpansion.update(time);
+            expansionScale = bombExpansion.getScale();
+        }
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, bombTexture);
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("time", time) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkStartTime", sparkStartTime) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkDuration", sparkDuration) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("crackStartTime", crackStartTime) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("crackDuration", crackDuration) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("detachStartTime", detachStartTime) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("detachDuration", detachDuration) ;
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("ourTexture", 1) ;
+        shaderPrograms[shaderProgramIndex]->release() ;
     }
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, bombTexture);
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("time", time) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkStartTime", sparkStartTime) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("sparkDuration", sparkDuration) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("crackStartTime", crackStartTime) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("crackDuration", crackDuration) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("detachStartTime", detachStartTime) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("detachDuration", detachDuration) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("ourTexture", 1) ;
-    shaderPrograms[shaderProgramIndex]->release() ;
-
     /*======================== Ground rendering ========================*/ 
+    groundTextureIndex = (time < explosionTime) ? 0 : 2;
     glDisable(GL_CULL_FACE); 
     groundShader->use();
     int groundTextureUnit = 0;
@@ -538,6 +604,7 @@ void render(){
     glEnable(GL_CULL_FACE); 
     
     /*======================== cubemap environment rendering ========================*/ 
+    cubemapIndex = (time < explosionTime) ? 1 : 2;
     cubemapShaders[cubemapIndex]->use() ;
     glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
     cubemapShaders[cubemapIndex]->set_uniform_value("view", cube_view) ;
@@ -550,20 +617,38 @@ void render(){
     cubemapShaders[cubemapIndex]->release() ;
 
     /*======================== Particle rendering ========================*/
-    glDisable(GL_CULL_FACE); 
-    particleShader->use();
-    particleShader->set_uniform_value("view", view);
-    particleShader->set_uniform_value("projection", projection);
-	for (Particle* particle : particles) {
-        particleShader->set_uniform_value("model", particle->modelTransform);
-        particleShader->set_uniform_value("particleSize", particle->size);
-        particleShader->set_uniform_value("tint", particle->tint);  // fading color, not work temporarily use fixed variable in fragment shadere
-        glBindVertexArray(ParticleVAO);
-		glDrawArrays(GL_POINTS, 0, 1);
+    if (time >= particleStartTime && time <= explosionTime) {
+        glDisable(GL_CULL_FACE); 
+        particleShader->use();
+        particleShader->set_uniform_value("view", view);
+        particleShader->set_uniform_value("projection", projection);
+        for (Particle* particle : particles) {
+            particleShader->set_uniform_value("model", particle->modelTransform);
+            particleShader->set_uniform_value("particleSize", particle->size);
+            particleShader->set_uniform_value("tint", particle->tint);  // fading color, not work temporarily use fixed variable in fragment shadere
+            glBindVertexArray(ParticleVAO);
+            glDrawArrays(GL_POINTS, 0, 1);
+            glBindVertexArray(0);
+        }
+        particleShader->release();
+        glEnable(GL_CULL_FACE); 
+    }
+
+    /*======================== Over Lay ========================*/
+    if (time >= explosionTime && time <= explosionEndTime) {
+        overlayAlpha = 1.0f - glm::clamp((time - explosionTime) / fadeDuration, 0.0f, 1.0f);
+        glDisable(GL_DEPTH_TEST);  // Disable depth test to render overlay on top of everything
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        fadingShader->use();
+        fadingShader->set_uniform_value("alpha", overlayAlpha);
+
+        glBindVertexArray(quadVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
         glBindVertexArray(0);
-	}
-    particleShader->release();
-    glEnable(GL_CULL_FACE); 
+        
+        glEnable(GL_DEPTH_TEST);
+    }
 }
 
 
