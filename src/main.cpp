@@ -144,7 +144,7 @@ glm::mat4 cameraModel;
 model_t bomb;
 glm::mat4 bombModel;
 unsigned int bombTexture;
-auto startTime = std::chrono::high_resolution_clock::now();
+auto startTime = glfwGetTime();
 auto currentTime = startTime;
 float sparkStartTime = 10.0;
 float sparkDuration = 10.0;
@@ -210,7 +210,7 @@ void update_particle_positionY() {
     float offset = 40.0f;
     float frequency = 1.0f;
 
-    particleSystem.position.y = offset + amplitude + amplitude * sin(glfwGetTime() * frequency);
+    particleSystem.position.y = offset + amplitude + amplitude * sin(currentTime * frequency);
 }
 
 void particle_model_setup() {
@@ -308,7 +308,7 @@ void bomb_shader_setup(){
         "default",                              // default shading
         "bling-phong", "gouraud", "metallic",   // addional shading effects (basic)
         "glass_schlick", "glass_empricial",     // addional shading effects (advanced)
-        "pre-explosion"                                 // final project
+        "bomb"                                 // final project
     };
 
     for(int i=0; i<shadingMethod.size(); i++){
@@ -319,7 +319,7 @@ void bomb_shader_setup(){
         shaderProgram->create();
         shaderProgram->add_shader(vpath, GL_VERTEX_SHADER);
         // add geometry shader for pre-explosion shading
-        if (shadingMethod[i] == "pre-explosion") {
+        if (shadingMethod[i] == "bomb") {
             std::string gpath = shaderDir + shadingMethod[i] + ".geom";
             shaderProgram->add_shader(gpath, GL_GEOMETRY_SHADER);
         }
@@ -571,9 +571,8 @@ void update(){
 		}
 	}
     // Update bomb position
-    currentTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<float> duration = currentTime - startTime ;
-    float time = duration.count() ;
+    currentTime = glfwGetTime();
+    float time = currentTime - startTime ;
     velocity.y -= gravity * time;
     if (bomb.position.y <= 0.5f) {
         bomb.position.y = 0.5f;
@@ -581,11 +580,11 @@ void update(){
     }
     bomb.position += velocity * time;
     // Update camera position
-    float deltaTime = time - crackStartTime;
+    float crack_deltaTime = time - crackStartTime;
     if (time >= crackStartTime && time < detachStartTime) {
-        camera.position.z -= 0.05f * deltaTime;
+        camera.position.z -= 0.05f * crack_deltaTime;
     } else if (time >= detachStartTime + 0.1 && time < explosionTime) {
-        camera.position.z += 0.025f * deltaTime;
+        camera.position.z += 0.025f * crack_deltaTime;
     }
     // shake effect
     shake_rotate += 10.0;
@@ -593,16 +592,16 @@ void update(){
         shake_rotate -= -360.0;
     }    
     // smoke effect
-    float deltaTime = 0.02f;
+    float smoke_deltaTime = 0.02f;
     for (int i = 0;i < smokeparticles.size();i++) {
         if (smokeparticles[i].life > 0.0f) {
-            smokeparticles[i].position += smokeparticles[i].velocity * deltaTime; // 更新位置
-            smokeparticles[i].velocity.y -= 9.8f * deltaTime;     // 模擬重力
-            smokeparticles[i].life -= deltaTime;
+            smokeparticles[i].position += smokeparticles[i].velocity * smoke_deltaTime; // 更新位置
+            smokeparticles[i].velocity.y -= 9.8f * smoke_deltaTime;     // 模擬重力
+            smokeparticles[i].life -= smoke_deltaTime;
             smokeparticles[i].size += 0.005;                 // 減少生命時間
         }
     }
-    if (time == smokeStartTime) {
+    if (smokeStartTime <= time && time < smokeStartTime + 0.5) {
         generateSmoke();
     }
 }
@@ -613,9 +612,8 @@ void render(){
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // time calculation
-    std::chrono::duration<float> duration = currentTime - startTime ;
-    float time = duration.count() ;
-    
+    float time = currentTime - startTime;
+
     // Calculate view, projection matrix
     glm::mat4 view = glm::lookAt(glm::vec3(cameraModel[3]), glm::vec3(0.0, 20.0, 0.0), camera.up);
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
@@ -645,7 +643,6 @@ void render(){
         shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
         bomb.object->render() ;
         // blur effect
-        shaderPrograms[shaderProgramIndex]->set_uniform_value("u_time", Time);
         shaderPrograms[shaderProgramIndex]->set_uniform_value("blurStrength", blurStrength);
         shaderPrograms[shaderProgramIndex]->set_uniform_value("shake", shake);
     
@@ -810,7 +807,6 @@ int main() {
     
     // Render loop, main logic can be found in update, render function
     while (!glfwWindowShouldClose(window)) {
-        Time = glfwGetTime();
         update(); 
         render(); 
         glfwSwapBuffers(window);
