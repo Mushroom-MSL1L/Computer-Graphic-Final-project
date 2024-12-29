@@ -10,9 +10,39 @@
 #include "header/shader.h"
 #include "header/stb_image.h"
 
+using namespace std;
+
 void framebufferSizeCallback(GLFWwindow *window, int width, int height);
 void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 unsigned int loadCubemap(std::vector<string> &mFileName);
+
+/*void setcloud()
+{
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // 載入雲霧貼圖
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    // 綁定貼圖及配置
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+}*/
+
+struct Particle {
+    glm::vec3 position;
+    glm::vec3 velocity;
+    float life; // 剩餘生命時間
+    float size; // 粒子大小
+};
+
+std::vector<Particle> particles;
+int maxParticles = 100; // 最大粒子數量
+
 
 struct material_t{
     glm::vec3 ambient;
@@ -44,15 +74,19 @@ struct camera_t{
 // settings
 int SCR_WIDTH = 800;
 int SCR_HEIGHT = 600;
-
+float shake_rotate = 0;
 // cube map 
 unsigned int cubemapTexture;
 unsigned int cubemapVAO, cubemapVBO;
 
 // shader programs 
 int shaderProgramIndex = 0;
+bool smoke = 0,shake = 0;
+float Time = 0;
+float scale = 1.0;
 std::vector<shader_program_t*> shaderPrograms;
 shader_program_t* cubemapShader;
+shader_program_t *SmokeShader;
 
 // additional dependencies
 light_t light;
@@ -60,16 +94,19 @@ material_t material;
 camera_t camera;
 model_t helicopter;
 model_t helicopterBlade;
+model_t Smoke;
 
 // model matrix
 int moveDir = -1;
 glm::mat4 helicopterModel;
+glm::mat4 smokemodel;
 glm::mat4 helicopterBladeModel;
 glm::mat4 cameraModel;
 
 //////////////////////////////////////////////////////////////////////////
 // Parameter setup, 
 // You can change any of the settings if you want
+
 void camera_setup(){
     camera.position = glm::vec3(0.0, 20.0, 100.0);
     camera.up = glm::vec3(0.0, 1.0, 0.0);
@@ -117,6 +154,14 @@ void model_setup(){
     helicopterBlade.object = new Object(objDir + "helicopter_blade.obj");
     helicopterBlade.object->load_to_buffer();
     helicopterBlade.object->load_texture(textureDir + "helicopter_red.jpg");
+
+    smokemodel = glm::mat4(1.0f);
+    Smoke.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    Smoke.scale = glm::vec3(0.1f, 0.1f, 0.1f);
+    Smoke.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
+    Smoke.object = new Object(objDir + "cloud.obj");
+    Smoke.object->load_to_buffer();
+    Smoke.object->load_texture(textureDir + "cloud.png");
 }
 
 
@@ -130,11 +175,7 @@ void shader_setup(){
     std::string shaderDir = "..\\..\\src\\shaders\\";
 #endif
 
-    std::vector<std::string> shadingMethod = {
-        "default",                              // default shading
-        "bling-phong", "gouraud", "metallic",   // addional shading effects (basic)
-        "glass_schlick", "glass_empricial",     // addional shading effects (advanced)
-    };
+    std::vector<std::string> shadingMethod = {"default"};
 
     for(int i=0; i<shadingMethod.size(); i++){
         std::string vpath = shaderDir + shadingMethod[i] + ".vert";
@@ -146,9 +187,16 @@ void shader_setup(){
         shaderProgram->add_shader(fpath, GL_FRAGMENT_SHADER);
         shaderProgram->link_shader();
         shaderPrograms.push_back(shaderProgram);
-    } 
-}
+    }
 
+    SmokeShader = new shader_program_t();
+    SmokeShader->create();
+    std::string v = shaderDir + "smoke.vert";
+    std::string f = shaderDir + "smoke.frag";
+    SmokeShader->add_shader(v, GL_VERTEX_SHADER);
+    SmokeShader->add_shader(f, GL_FRAGMENT_SHADER);
+    SmokeShader->link_shader();
+}
 
 void cubemap_setup(){
 
@@ -197,8 +245,10 @@ void cubemap_setup(){
     glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTexture);
 }
 
-void setup(){
+unsigned int SmokeTexture;
 
+
+void setup(){
     // Initialize shader model camera light material
     light_setup();
     model_setup();
@@ -215,19 +265,18 @@ void setup(){
     glCullFace(GL_BACK);
 
     // Debug: enable for debugging
-    // glEnable(GL_DEBUG_OUTPUT);
-    // glDebugMessageCallback([](  GLenum source, GLenum type, GLuint id, GLenum severity, 
-    //                             GLsizei length, const GLchar* message, const void* userParam) {
+    glEnable(GL_DEBUG_OUTPUT);
+    glDebugMessageCallback([](  GLenum source, GLenum type, GLuint id, GLenum severity, 
+                                 GLsizei length, const GLchar* message, const void* userParam) {
 
-    // std::cerr << "GL CALLBACK: " << (type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") 
-    //           << "type = " << type 
-    //           << ", severity = " << severity 
-    //           << ", message = " << message << std::endl;
-    // }, nullptr);
+     std::cerr << "GL CALLBACK: " << (type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") 
+               << "type = " << type 
+               << ", severity = " << severity 
+               << ", message = " << message << std::endl;
+     }, nullptr);
 }
 
 void update(){
-    
 // Update the heicopter position, camera position, rotation, etc.
 
     helicopter.position.y += moveDir;
@@ -250,10 +299,26 @@ void update(){
     cameraModel = glm::mat4(1.0f);
     cameraModel = glm::rotate(cameraModel, glm::radians(camera.rotationY), camera.up);
     cameraModel = glm::translate(cameraModel, camera.position);
+
+    shake_rotate += 10.0;
+    if(shake_rotate > 360.0){
+        shake_rotate -= -360.0;
+    }
+    
+    float deltaTime = 0.02f;
+
+    for (int i = 0;i < particles.size();i++) {
+        if (particles[i].life > 0.0f) {
+            particles[i].position += particles[i].velocity * deltaTime; // 更新位置
+            particles[i].velocity.y -= 9.8f * deltaTime;     // 模擬重力
+            particles[i].life -= deltaTime;
+            particles[i].size += 0.05;                 // 減少生命時間
+        }
+    }
+
 }
 
 void render(){
-
     glClearColor(0.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -262,46 +327,41 @@ void render(){
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
 
     // Set matrix for view, projection, model transformation
-    shaderPrograms[shaderProgramIndex]->use();
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterModel);
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("view", view);
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("projection", projection);
+    float blurStrength = 0.03;
     
+    shaderPrograms[0]->use();
+    shaderPrograms[0]->set_uniform_value("model", helicopterModel);
+    shaderPrograms[0]->set_uniform_value("view", view);
+    shaderPrograms[0]->set_uniform_value("projection", projection);
+    shaderPrograms[0]->set_uniform_value("u_time", Time);
+    shaderPrograms[0]->set_uniform_value("blurStrength", blurStrength);
+    shaderPrograms[0]->set_uniform_value("shake", shake);
     // TODO 1
     // Set uniform value for each shader program
-    if (shaderProgramIndex == 1) {
-        light.specular = glm::vec3(3.0);
-        material.gloss = 10.5;
-    } else if (shaderProgramIndex == 2) {
-        light.specular = glm::vec3(4.0);
-        material.gloss = 48;
-    } else {
-        light.specular = glm::vec3(1.0);
-        material.gloss = 10.5;
-    }
-    // camera uniform value
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("camera_position", cameraModel[3]) ;
-    // light uniform value
-    glm::vec3 lightPositionInCameraSpace = glm::vec3(cameraModel * glm::vec4(light.position, 1.0f));
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_ambient", light.ambient) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_diffuse", light.diffuse) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_position", lightPositionInCameraSpace) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("light_specular", light.specular) ;
-    // material uniform value 
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_ambient", material.ambient) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_diffuse", material.diffuse) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_gloss", material.gloss) ;
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
     
-    // reflection uniform value    
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("cubemap", 1) ;
-    // End of TODO 1
+
+
+    glm::vec3 camera_pos = glm::vec3(cameraModel[3]);
+
+    shaderPrograms[0]->set_uniform_value("camera_pos", camera_pos);
+
 
     helicopter.object->render();
-    shaderPrograms[shaderProgramIndex]->set_uniform_value("model", helicopterBladeModel);
+    shaderPrograms[0]->set_uniform_value("model", helicopterBladeModel);
+    shaderPrograms[0]->set_uniform_value("u_time", Time);
+    shaderPrograms[0]->set_uniform_value("blurStrength", blurStrength);
+    shaderPrograms[0]->set_uniform_value("shake", shake);
+
     helicopterBlade.object->render();
-    shaderPrograms[shaderProgramIndex]->release();
-    
+    shaderPrograms[0]->set_uniform_value("model", helicopterBladeModel);
+    shaderPrograms[0]->set_uniform_value("u_time", Time);
+    shaderPrograms[0]->set_uniform_value("blurStrength", blurStrength);
+    shaderPrograms[0]->set_uniform_value("shake", shake);
+
+
+    shaderPrograms[0]->release();
+
+
     // TODO 4-2 
     // Rendering cubemap environment
     // Hint:
@@ -310,15 +370,56 @@ void render(){
     // 3. You need to set the view, projection matrix.
     // 4. Use the cubemapShader to render the cubemap 
     //    (refer to the above code to get an idea of how to use the shader program)
-    cubemapShader->use() ;
-    glm::mat4 cube_view = glm::mat4(glm::mat3(view)) ;
-    cubemapShader->set_uniform_value("view", cube_view) ;
-    cubemapShader->set_uniform_value("projection", projection) ;
-    cubemapShader->set_uniform_value("cubemap", 1) ;
-    glBindVertexArray(cubemapVAO) ;
-    glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
-    glBindVertexArray(0) ;
-    cubemapShader->release() ;
+    cubemapShader->use();
+
+    cubemapShader->set_uniform_value("u_time", Time);
+    cubemapShader->set_uniform_value("blurStrength", blurStrength);
+    cubemapShader->set_uniform_value("shake", shake);
+    cubemapShader->set_uniform_value("view", view);
+    cubemapShader->set_uniform_value("projection", projection);
+    cubemapShader->set_uniform_value("cube", 1);
+    
+    glBindVertexArray(cubemapVAO);
+    glDrawArrays(GL_TRIANGLES,0,36);
+    glBindVertexArray(0);
+
+    cubemapShader->release();
+    
+    if(smoke)
+    {
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        
+        SmokeShader->use();
+        SmokeShader->set_uniform_value("view", view);
+        SmokeShader->set_uniform_value("projection", projection);
+        SmokeShader->set_uniform_value("u_time", Time);
+        SmokeShader->set_uniform_value("blurStrength", blurStrength);
+        SmokeShader->set_uniform_value("shake", shake);
+        SmokeShader->set_uniform_value("light_pos", light.position);
+        SmokeShader->set_uniform_value("redColor",glm::vec3(1.0,0.0,0.0));
+        SmokeShader->set_uniform_value("yellowColor",glm::vec3(1.0, 0.5, 0.0));
+        SmokeShader->set_uniform_value("grayColor",glm::vec3(0.5, 0.5, 0.5));
+        
+
+        for (const auto& p : particles) {
+            
+            if (p.life > 0.0f) {
+                
+                glm::mat4 model = glm::translate(glm::mat4(1.0f), p.position);
+                smokemodel = glm::scale(model, glm::vec3(p.size)); // 調整大小
+                SmokeShader->set_uniform_value("objectSize",p.size);
+                SmokeShader->set_uniform_value("model", smokemodel);
+                SmokeShader->set_uniform_value("alpha", p.life); // 用生命時間作為透明度
+
+                Smoke.object->render(); // 假設 Smoke 是雲霧模型
+            }
+        }
+
+        SmokeShader->release();
+        glDisable(GL_BLEND);
+    }
 }
 
 
@@ -335,7 +436,7 @@ int main() {
 #endif
 
     // glfw window creation
-    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "HW3-111550065", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "HW4-110704071", NULL, NULL);
     if (window == NULL) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -361,6 +462,7 @@ int main() {
     
     // Render loop, main logic can be found in update, render function
     while (!glfwWindowShouldClose(window)) {
+        Time = glfwGetTime();
         update(); 
         render(); 
         glfwSwapBuffers(window);
@@ -386,15 +488,31 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     if (key == GLFW_KEY_0 && (action == GLFW_REPEAT || action == GLFW_PRESS)) 
         shaderProgramIndex = 0;
     if (key == GLFW_KEY_1 && (action == GLFW_REPEAT || action == GLFW_PRESS)) 
-        shaderProgramIndex = 1;
+        shake = (shake + 1) % 2;
     if (key == GLFW_KEY_2 && (action == GLFW_REPEAT || action == GLFW_PRESS)) 
-        shaderProgramIndex = 2;
-    if (key == GLFW_KEY_3 && (action == GLFW_REPEAT || action == GLFW_PRESS))
-        shaderProgramIndex = 3;
-    if (key == GLFW_KEY_4 && (action == GLFW_REPEAT || action == GLFW_PRESS))
-        shaderProgramIndex = 4;
-    if (key == GLFW_KEY_5 && (action == GLFW_REPEAT || action == GLFW_PRESS))
-        shaderProgramIndex = 5;
+        {
+            smoke = 0;
+            shake = 0;
+            smoke = 1;
+            shake = 1;
+            if(smoke)
+            {
+                particles.clear();
+                for (int i = 0; i < maxParticles; ++i) {
+                    Particle p;
+                    p.position = Smoke.position;
+                    p.velocity = glm::vec3(
+                        (float(rand()) / RAND_MAX - 0.5f) * 10.0f, // 隨機 X
+                        (float(rand()) / RAND_MAX) * 10.0f,         // 隨機 Y
+                        (float(rand()) / RAND_MAX - 0.5f) * 10.0f  // 隨機 Z
+                    );
+                    p.life = 2.0 - (i + 1) * 0.01 * 1.5; // 1~2秒壽命
+                    p.size = (i + 1) * 0.01 + 0.7f; // 隨機大小
+                    std::cout << p.life << " " << p.size << '\n';
+                    particles.push_back(p);
+                }
+            }
+        }
 
     // camera movement
     float cameraSpeed = 0.5f;

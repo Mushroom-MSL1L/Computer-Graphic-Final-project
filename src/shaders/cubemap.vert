@@ -1,17 +1,24 @@
 #version 330 core
 layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoord;
 
-out vec3 textureCorrdinate ;
+// TODO 4-1
+// Implement CubeMap shading
+
+out vec3 TexCoords;
 
 uniform mat4 view;
 uniform mat4 projection;
 
-// TODO 4-1
-// Implement CubeMap shading
+
 void main()
 {
-    gl_Position = projection * view * vec4(aPos, 1.0) ;
-    gl_Position = gl_Position.xyww ;
-    
-    textureCorrdinate = aPos ;
+    TexCoords = aPos;
+
+    vec4 Pos = projection * mat4(mat3(view)) * vec4(aPos, 1.0);
+
+    gl_Position = Pos.xyww;
+
+
 }
