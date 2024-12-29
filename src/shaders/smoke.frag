@@ -13,24 +13,48 @@ uniform vec3 redColor;
 uniform vec3 yellowColor;
 uniform vec3 grayColor;
 uniform float objectSize;
+uniform float u_time;
 
 void main() {
     
-    vec3 baseColor;
-    if (objectSize <= 0.55) {
-        // 小尺寸：紅色 (完全紅)
-        baseColor = redColor;
-    } else if (objectSize <= 2.1) {
-        // 中尺寸：紅到黃過渡
-        float factor = (objectSize - 0.55) / (2.1 - 0.55);
-        baseColor = mix(redColor, yellowColor, factor);
-    } else if (objectSize <= 2.5) {
-        // 大尺寸：黃到灰過渡
-        float factor = (objectSize - 2.1) / (2.5 - 2.1);
-        baseColor = mix(yellowColor, grayColor, factor);
+    vec4 texColor;
+    if(shake == 0) {
+        texColor = texture(cloudTexture, TexCoord);
     } else {
+        float offset = sin(u_time * 50.0) * 0.005;
+        vec2 shakenTexCoords = TexCoord + vec2(offset, -offset);
+
+        // 定義周圍方向偏移量
+        vec2 offsets[9] = vec2[](
+            vec2(0.0, 0.0),
+            vec2(blurStrength, 0.0),
+            vec2(-blurStrength, 0.0),
+            vec2(0.0, blurStrength),
+            vec2(0.0, -blurStrength),
+            vec2(blurStrength, blurStrength),
+            vec2(-blurStrength, blurStrength),
+            vec2(blurStrength, -blurStrength),
+            vec2(-blurStrength, -blurStrength)
+        );
+
+        vec4 colorSum = vec4(0.0);
+        for (int i = 0; i < 1; ++i) {
+            colorSum += texture(cloudTexture, shakenTexCoords + offsets[i]);
+        }
+
+        // 計算平均值
+        texColor = colorSum;
+    }
+    
+    vec3 baseColor;
+    if (objectSize <= 0.35) {
+        // 中尺寸：紅到黃過渡
+        float factor = (objectSize - 0.35) / 0.35;
+        baseColor = mix(texColor.rgb, grayColor, factor);
+    } 
+    else {
         // 超大尺寸：完全灰
-        baseColor = grayColor;
+        baseColor = grayColor * texColor.rgb;
     }
 
    
@@ -44,14 +68,7 @@ void main() {
     else intensity = 0.1;
 
 
-    vec3 finalColor = baseColor  * intensity;
-
-    vec3 blurColor = finalColor;
-    if (shake != 0) {
-        // 使用法線來模擬模糊強度
-        float blurFactor = length(Normal); // 法線長度決定模糊程度
-        blurColor = mix(finalColor, finalColor * 0.5, blurFactor * blurStrength);
-    }
-
-    FragColor = vec4(blurColor, alpha);
+    vec3 finalColor = baseColor * intensity;
+    //vec4 finalColor = texture(cloudTexture,TexCoord);
+    FragColor = vec4(finalColor.rgb, alpha);
 }

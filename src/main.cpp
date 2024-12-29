@@ -16,33 +16,15 @@ void framebufferSizeCallback(GLFWwindow *window, int width, int height);
 void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 unsigned int loadCubemap(std::vector<string> &mFileName);
 
-/*void setcloud()
-{
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // 載入雲霧貼圖
-    GLuint textureID;
-    glGenTextures(1, &textureID);
-    // 綁定貼圖及配置
-    glBindTexture(GL_TEXTURE_2D, textureID);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-}*/
-
-struct Particle {
+struct smokeParticle {
     glm::vec3 position;
     glm::vec3 velocity;
     float life; // 剩餘生命時間
     float size; // 粒子大小
 };
 
-std::vector<Particle> particles;
-int maxParticles = 100; // 最大粒子數量
-
+std::vector<smokeParticle> smokeparticles;
+int maxsmokeParticles = 1; // 最大粒子數量
 
 struct material_t{
     glm::vec3 ambient;
@@ -93,14 +75,12 @@ light_t light;
 material_t material;
 camera_t camera;
 model_t helicopter;
-model_t helicopterBlade;
 model_t Smoke;
 
 // model matrix
 int moveDir = -1;
 glm::mat4 helicopterModel;
 glm::mat4 smokemodel;
-glm::mat4 helicopterBladeModel;
 glm::mat4 cameraModel;
 
 //////////////////////////////////////////////////////////////////////////
@@ -148,20 +128,13 @@ void model_setup(){
     helicopter.object->load_to_buffer();
     helicopter.object->load_texture(textureDir + "helicopter_red.jpg");
 
-    helicopterBlade.position = helicopter.position;
-    helicopterBlade.scale = helicopter.scale;
-    helicopterBlade.rotation = helicopter.rotation;
-    helicopterBlade.object = new Object(objDir + "helicopter_blade.obj");
-    helicopterBlade.object->load_to_buffer();
-    helicopterBlade.object->load_texture(textureDir + "helicopter_red.jpg");
-
     smokemodel = glm::mat4(1.0f);
     Smoke.position = glm::vec3(0.0f, 0.0f, 0.0f);
     Smoke.scale = glm::vec3(0.1f, 0.1f, 0.1f);
     Smoke.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
-    Smoke.object = new Object(objDir + "cloud.obj");
+    Smoke.object = new Object(objDir + "explosion.obj");
     Smoke.object->load_to_buffer();
-    Smoke.object->load_texture(textureDir + "cloud.png");
+    Smoke.object->load_texture(textureDir + "explosion-diffuse.jpg");
 }
 
 
@@ -283,17 +256,9 @@ void update(){
     if(helicopter.position.y > 20.0 || helicopter.position.y < -100.0){
         moveDir = -moveDir;
     }
-
-    helicopterBlade.rotation.y += 10;
-    if(helicopterBlade.rotation.y > 360.0){
-        helicopterBlade.rotation.y = 0.0;
-    }
-
     helicopterModel = glm::mat4(1.0f);
     helicopterModel = glm::scale(helicopterModel, helicopter.scale);
     helicopterModel = glm::translate(helicopterModel, helicopter.position);
-
-    helicopterBladeModel = glm::rotate(helicopterModel, glm::radians(helicopterBlade.rotation.y), glm::vec3(0.0, 1.0, 0.0));
 
     camera.rotationY = (camera.rotationY > 360.0) ? 0.0 : camera.rotationY;
     cameraModel = glm::mat4(1.0f);
@@ -307,18 +272,19 @@ void update(){
     
     float deltaTime = 0.02f;
 
-    for (int i = 0;i < particles.size();i++) {
-        if (particles[i].life > 0.0f) {
-            particles[i].position += particles[i].velocity * deltaTime; // 更新位置
-            particles[i].velocity.y -= 9.8f * deltaTime;     // 模擬重力
-            particles[i].life -= deltaTime;
-            particles[i].size += 0.05;                 // 減少生命時間
+    for (int i = 0;i < smokeparticles.size();i++) {
+        if (smokeparticles[i].life > 0.0f) {
+            smokeparticles[i].position += smokeparticles[i].velocity * deltaTime; // 更新位置
+            smokeparticles[i].velocity.y -= 9.8f * deltaTime;     // 模擬重力
+            smokeparticles[i].life -= deltaTime;
+            smokeparticles[i].size += 0.005;                 // 減少生命時間
         }
     }
 
 }
 
 void render(){
+    
     glClearColor(0.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -336,29 +302,12 @@ void render(){
     shaderPrograms[0]->set_uniform_value("u_time", Time);
     shaderPrograms[0]->set_uniform_value("blurStrength", blurStrength);
     shaderPrograms[0]->set_uniform_value("shake", shake);
-    // TODO 1
-    // Set uniform value for each shader program
     
-
-
+    // Set uniform value for each shader program
     glm::vec3 camera_pos = glm::vec3(cameraModel[3]);
 
     shaderPrograms[0]->set_uniform_value("camera_pos", camera_pos);
-
-
     helicopter.object->render();
-    shaderPrograms[0]->set_uniform_value("model", helicopterBladeModel);
-    shaderPrograms[0]->set_uniform_value("u_time", Time);
-    shaderPrograms[0]->set_uniform_value("blurStrength", blurStrength);
-    shaderPrograms[0]->set_uniform_value("shake", shake);
-
-    helicopterBlade.object->render();
-    shaderPrograms[0]->set_uniform_value("model", helicopterBladeModel);
-    shaderPrograms[0]->set_uniform_value("u_time", Time);
-    shaderPrograms[0]->set_uniform_value("blurStrength", blurStrength);
-    shaderPrograms[0]->set_uniform_value("shake", shake);
-
-
     shaderPrograms[0]->release();
 
 
@@ -403,7 +352,7 @@ void render(){
         SmokeShader->set_uniform_value("grayColor",glm::vec3(0.5, 0.5, 0.5));
         
 
-        for (const auto& p : particles) {
+        for (const auto& p : smokeparticles) {
             
             if (p.life > 0.0f) {
                 
@@ -415,10 +364,32 @@ void render(){
 
                 Smoke.object->render(); // 假設 Smoke 是雲霧模型
             }
+            //break;
         }
 
         SmokeShader->release();
         glDisable(GL_BLEND);
+    }
+}
+
+void generateSmoke(){
+    smoke = 0;
+    shake = 0;
+    smoke = 1;
+    shake = 1;
+    smokeparticles.clear();
+    for (int i = 0; i < maxsmokeParticles; ++i) {
+        smokeParticle p;
+        p.position = Smoke.position;
+        p.velocity = glm::vec3(
+            (float(rand()) / RAND_MAX - 0.5f) * 10.0f, // 隨機 X
+            (float(rand()) / RAND_MAX) * 10.0f,         // 隨機 Y
+            (float(rand()) / RAND_MAX - 0.5f) * 10.0f  // 隨機 Z
+        );
+        p.life = 2.0 - (i + 1) * 0.01 * 1.5; // 1~2秒壽命
+        p.size = (i + 1) * 0.005 + 0.15f; // 隨機大小
+        std::cout << p.life << " " << p.size << '\n';
+        smokeparticles.push_back(p);
     }
 }
 
@@ -436,7 +407,7 @@ int main() {
 #endif
 
     // glfw window creation
-    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "HW4-110704071", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "HW4", NULL, NULL);
     if (window == NULL) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -490,29 +461,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     if (key == GLFW_KEY_1 && (action == GLFW_REPEAT || action == GLFW_PRESS)) 
         shake = (shake + 1) % 2;
     if (key == GLFW_KEY_2 && (action == GLFW_REPEAT || action == GLFW_PRESS)) 
-        {
-            smoke = 0;
-            shake = 0;
-            smoke = 1;
-            shake = 1;
-            if(smoke)
-            {
-                particles.clear();
-                for (int i = 0; i < maxParticles; ++i) {
-                    Particle p;
-                    p.position = Smoke.position;
-                    p.velocity = glm::vec3(
-                        (float(rand()) / RAND_MAX - 0.5f) * 10.0f, // 隨機 X
-                        (float(rand()) / RAND_MAX) * 10.0f,         // 隨機 Y
-                        (float(rand()) / RAND_MAX - 0.5f) * 10.0f  // 隨機 Z
-                    );
-                    p.life = 2.0 - (i + 1) * 0.01 * 1.5; // 1~2秒壽命
-                    p.size = (i + 1) * 0.01 + 0.7f; // 隨機大小
-                    std::cout << p.life << " " << p.size << '\n';
-                    particles.push_back(p);
-                }
-            }
-        }
+        generateSmoke();
 
     // camera movement
     float cameraSpeed = 0.5f;
