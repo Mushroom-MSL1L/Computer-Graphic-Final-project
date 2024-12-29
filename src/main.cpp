@@ -524,8 +524,6 @@ void makeParticles(particleSystem_t* system) {
 
 // generate smoke model and texture
 void generateSmoke(){
-    smoke = 0;
-    shake = 0;
     smoke = 1;
     shake = 1;
     smokeparticles.clear();
@@ -601,7 +599,7 @@ void update(){
             smokeparticles[i].size += 0.005;                 // 減少生命時間
         }
     }
-    if (smokeStartTime <= time && time < smokeStartTime + 0.5) {
+    if (smokeStartTime <= time && smokeStartTime + 0.1 >= time) {
         generateSmoke();
     }
 }
@@ -675,6 +673,9 @@ void render(){
     groundShader->set_uniform_value("view", view);
     groundShader->set_uniform_value("projection", projection);
     groundShader->set_uniform_value("texture1", groundTextureUnit);
+    groundShader->set_uniform_value("u_time", time);
+    groundShader->set_uniform_value("blurStrength", blurStrength);
+    groundShader->set_uniform_value("shake", shake);
     glBindVertexArray(groundVAO);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
@@ -688,7 +689,7 @@ void render(){
     cubemapShaders[cubemapIndex]->set_uniform_value("view", cube_view) ;
     cubemapShaders[cubemapIndex]->set_uniform_value("projection", projection) ;
     cubemapShaders[cubemapIndex]->set_uniform_value("cubemap", int(cubemapIndex)) ;
-    shaderPrograms[cubemapIndex]->set_uniform_value("u_time", Time);
+    shaderPrograms[cubemapIndex]->set_uniform_value("u_time", time);
     shaderPrograms[cubemapIndex]->set_uniform_value("blurStrength", blurStrength);
     shaderPrograms[cubemapIndex]->set_uniform_value("shake", shake);
     glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTextures[cubemapIndex]) ;
