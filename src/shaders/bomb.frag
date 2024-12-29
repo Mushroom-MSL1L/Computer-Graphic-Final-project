@@ -65,7 +65,8 @@ void main()
             colorSum += texture(ourTexture, texCoords + offsets[i]);
         }
 
-        textureColor = colorSum / 9.0;
+        FragColor = colorSum / 9.0;
+        return;
     }
 
     if (isEffect == 1.0) {
