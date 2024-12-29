@@ -60,9 +60,6 @@ This project requires the following files and assets. Please ensure the director
 - `asset/shaders/smoke.vert`, `frag` - Shader code for smoke effects.
 - `asset/shaders/ground.vert`, `frag` - Shader code for the ground texture.
 
-## Works
-URL: 
-
 ## Contributors ✨
 Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
 
