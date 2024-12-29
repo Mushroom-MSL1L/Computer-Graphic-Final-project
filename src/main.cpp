@@ -196,15 +196,15 @@ void update_particle_positionY() {
 
 void particle_model_setup() {
     /* ======================== particle system ========================*/
-    particleSystem.position = glm::vec3(0, 0, 0);
-    particleSystem.incident = glm::vec3(0, 0.5, 0);                 // direction for emit direction and velocity
+    particleSystem.position = glm::vec3(0.0f, 0.0f, 0);
+    particleSystem.incident = glm::vec3(0, -1.5f, 0);                 // direction for emit direction and velocity
     particleSystem.normal = glm::normalize(glm::vec3(0, 1, 0));     // spread direction
-    particleSystem.acceleration = glm::vec3(0, -0.1, 0);
-    particleSystem.baseSize = 0.15f;                                 // size of particle, will be randomized later
-    particleSystem.baseLifetime = 100.0f;                           // lifetime of particle, will be randomized later
-    particleSystem.generateParticleNumeber = 10;
+    particleSystem.acceleration = glm::vec3(0, -0.01, 0);
+    particleSystem.baseSize = 0.2f;                                 // size of particle, will be randomized later
+    particleSystem.baseLifetime = 150.0f;                           // lifetime of particle, will be randomized later
+    particleSystem.generateParticleNumeber = 10 ;
     particleSystem.randomFactor = 0.05f;
-    update_particle_positionY();
+    // update_particle_positionY();
 
     /* ======================== VAO, VBO =======================*/
     float vertices[] = { 0, 0, 0 }; // real position of emitter
@@ -502,6 +502,8 @@ void update(){
     groundModel = glm::scale(groundModel, ground.scale);
     groundModel = glm::translate(groundModel, ground.position);
     // Update particle system
+
+    update_particle_positionY();
     makeParticles(&particleSystem);
 	for (int i = 0; i < particles.size(); ++i) {
 		Particle* particle = particles[i];
