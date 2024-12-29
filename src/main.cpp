@@ -23,10 +23,22 @@
     std::string shaderDir = "..\\..\\src\\shaders\\";
 #endif
 
+using namespace std;
+
 void framebufferSizeCallback(GLFWwindow *window, int width, int height);
 void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 unsigned int loadCubemap(std::vector<string> &mFileName);
 void load_image(std::string texturePath);
+
+struct smokeParticle {
+    glm::vec3 position;
+    glm::vec3 velocity;
+    float life; // 剩餘生命時間
+    float size; // 粒子大小
+};
+
+std::vector<smokeParticle> smokeparticles;
+int maxsmokeParticles = 1; // 最大粒子數量
 
 struct material_t{
     glm::vec3 ambient;
@@ -74,7 +86,7 @@ struct particleSystem_t {
 // settings
 int SCR_WIDTH = 800;
 int SCR_HEIGHT = 600;
-
+float shake_rotate = 0;
 // cube map 
 unsigned int cubemapIndex = 0;
 std::vector<shader_program_t*> cubemapShaders;
@@ -106,10 +118,13 @@ float rate = 1.0; // rate of particle generation per frame
 GLuint ParticleVBO, ParticleVAO;
 
 // shader programs 
-int shaderProgramIndex = 6; // final project
+int shaderProgramIndex = 6;
+bool smoke = 0,shake = 0;
+float Time = 0;
+float scale = 1.0;
 std::vector<shader_program_t*> shaderPrograms;
-
-// fading shader
+shader_program_t* cubemapShader;
+shader_program_t *SmokeShader;
 shader_program_t* fadingShader;
 
 // additional dependencies
@@ -117,15 +132,15 @@ light_t light;
 material_t material;
 camera_t camera;
 model_t helicopter;
-model_t helicopterBlade;
+model_t Smoke;
 
 // model matrix
 int moveDir = -1;
 glm::mat4 helicopterModel;
-glm::mat4 helicopterBladeModel;
+glm::mat4 smokemodel;
 glm::mat4 cameraModel;
 
-// bomb model
+// bomb model & time control
 model_t bomb;
 glm::mat4 bombModel;
 unsigned int bombTexture;
@@ -163,6 +178,10 @@ float quadVertices[] = {
 };
 float fadeDuration = explosionEndTime - explosionTime; // Duration of fade in seconds
 float overlayAlpha;
+// blur 
+float blurStrength = 0.03;
+// smoke
+float smokeStartTime = 20.0;
 
 //////////////////////////////////////////////////////////////////////////
 // Parameter setup, 
@@ -245,14 +264,34 @@ void fading_shader_setup(){
     fadingShader->link_shader();
 }
 
+void smoke_model_setup(){
+    smokemodel = glm::mat4(1.0f);
+    Smoke.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    Smoke.scale = glm::vec3(0.1f, 0.1f, 0.1f);
+    Smoke.rotation = glm::vec3(0.0f, 0.0f, 0.0f);
+    Smoke.object = new Object(objDir + "explosion.obj");
+    Smoke.object->load_to_buffer();
+    Smoke.object->load_texture(textureDir + "explosion-diffuse.jpg");
+}
+
+void smoke_shader_setup(){
+    SmokeShader = new shader_program_t();
+    SmokeShader->create();
+    std::string v = shaderDir + "smoke.vert";
+    std::string f = shaderDir + "smoke.frag";
+    SmokeShader->add_shader(v, GL_VERTEX_SHADER);
+    SmokeShader->add_shader(f, GL_FRAGMENT_SHADER);
+    SmokeShader->link_shader();
+}
+
 void bomb_model_setup(){
-#if defined(__linux__) || defined(__APPLE__)
-    std::string objDir = "../../src/asset/obj/";
-    std::string textureDir = "../../src/asset/texture/";
-#else
-    std::string objDir = "..\\..\\src\\asset\\obj\\";
-    std::string textureDir = "..\\..\\src\\asset\\texture\\";
-#endif
+    #if defined(__linux__) || defined(__APPLE__)
+        std::string objDir = "../../src/asset/obj/";
+        std::string textureDir = "../../src/asset/texture/";
+    #else
+        std::string objDir = "..\\..\\src\\asset\\obj\\";
+        std::string textureDir = "..\\..\\src\\asset\\texture\\";
+    #endif
 
     bombModel = glm::mat4(1.0f);
     bomb.position = glm::vec3(0.0f, 7.0f, 0.0f);
@@ -428,8 +467,9 @@ void setup(){
     particle_model_setup();
     particle_shader_setup();
     fading_shader_setup();
-
     genQuad();
+    smoke_model_setup();
+    smoke_shader_setup();
 
     // Enable depth test, face culling ...
     glEnable(GL_DEPTH_TEST);
@@ -441,13 +481,13 @@ void setup(){
     // Debug: enable for debugging
     // glEnable(GL_DEBUG_OUTPUT);
     // glDebugMessageCallback([](  GLenum source, GLenum type, GLuint id, GLenum severity, 
-    //                             GLsizei length, const GLchar* message, const void* userParam) {
+    //                              GLsizei length, const GLchar* message, const void* userParam) {
 
-    // std::cerr << "GL CALLBACK: " << (type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") 
-    //           << "type = " << type 
-    //           << ", severity = " << severity 
-    //           << ", message = " << message << std::endl;
-    // }, nullptr);
+    //  std::cerr << "GL CALLBACK: " << (type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "") 
+    //            << "type = " << type 
+    //            << ", severity = " << severity 
+    //            << ", message = " << message << std::endl;
+    //  }, nullptr);
 }
 
 void makeParticles(particleSystem_t* system) {
@@ -482,21 +522,40 @@ void makeParticles(particleSystem_t* system) {
 	}
 }
 
-void update(){
+// generate smoke model and texture
+void generateSmoke(){
+    smoke = 0;
+    shake = 0;
+    smoke = 1;
+    shake = 1;
+    smokeparticles.clear();
+    for (int i = 0; i < maxsmokeParticles; ++i) {
+        smokeParticle p;
+        p.position = Smoke.position;
+        p.velocity = glm::vec3(
+            (float(rand()) / RAND_MAX - 0.5f) * 10.0f, // 隨機 X
+            (float(rand()) / RAND_MAX) * 10.0f,         // 隨機 Y
+            (float(rand()) / RAND_MAX - 0.5f) * 10.0f  // 隨機 Z
+        );
+        p.life = 2.0 - (i + 1) * 0.01 * 1.5; // 1~2秒壽命
+        p.size = (i + 1) * 0.005 + 0.15f; // 隨機大小
+        std::cout << p.life << " " << p.size << '\n';
+        smokeparticles.push_back(p);
+    }
+}
 
+void update(){
     // Update model matrix
     bombModel = glm::mat4(1.0f);
     bombModel = glm::scale(bombModel, bomb.scale * expansionScale);
     bombModel = glm::translate(bombModel, bomb.position);
     bombModel = glm::rotate(bombModel, glm::radians(bomb.rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
     bombModel = glm::rotate(bombModel, glm::radians(bomb.rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
-
     // Update camera model matrix
     camera.rotationY = (camera.rotationY > 360.0) ? 0.0 : camera.rotationY;
     cameraModel = glm::mat4(1.0f);
     cameraModel = glm::rotate(cameraModel, glm::radians(camera.rotationY), camera.up);
     cameraModel = glm::translate(cameraModel, camera.position);
-
     // Update ground model matrix
     groundModel = glm::mat4(1.0f);
     groundModel = glm::scale(groundModel, ground.scale);
@@ -506,7 +565,6 @@ void update(){
 	for (int i = 0; i < particles.size(); ++i) {
 		Particle* particle = particles[i];
 		particle->update(rate);
-
 		if (particle->t >= particle->lifetime) {
 			delete particle;
 			particles.erase(particles.begin() + i--);
@@ -522,19 +580,38 @@ void update(){
         velocity.y = 0.0f;
     }
     bomb.position += velocity * time;
-
+    // Update camera position
     float deltaTime = time - crackStartTime;
     if (time >= crackStartTime && time < detachStartTime) {
         camera.position.z -= 0.05f * deltaTime;
     } else if (time >= detachStartTime + 0.1 && time < explosionTime) {
         camera.position.z += 0.025f * deltaTime;
     }
+    // shake effect
+    shake_rotate += 10.0;
+    if(shake_rotate > 360.0){
+        shake_rotate -= -360.0;
+    }    
+    // smoke effect
+    float deltaTime = 0.02f;
+    for (int i = 0;i < smokeparticles.size();i++) {
+        if (smokeparticles[i].life > 0.0f) {
+            smokeparticles[i].position += smokeparticles[i].velocity * deltaTime; // 更新位置
+            smokeparticles[i].velocity.y -= 9.8f * deltaTime;     // 模擬重力
+            smokeparticles[i].life -= deltaTime;
+            smokeparticles[i].size += 0.005;                 // 減少生命時間
+        }
+    }
+    if (time == smokeStartTime) {
+        generateSmoke();
+    }
 }
 
 void render(){
-
+    
     glClearColor(0.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
     // time calculation
     std::chrono::duration<float> duration = currentTime - startTime ;
     float time = duration.count() ;
@@ -567,6 +644,10 @@ void render(){
         shaderPrograms[shaderProgramIndex]->set_uniform_value("material_gloss", material.gloss) ;
         shaderPrograms[shaderProgramIndex]->set_uniform_value("material_specular", material.specular) ;
         bomb.object->render() ;
+        // blur effect
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("u_time", Time);
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("blurStrength", blurStrength);
+        shaderPrograms[shaderProgramIndex]->set_uniform_value("shake", shake);
     
         /*======================== pre-explosion rendering ========================*/ 
         
@@ -610,6 +691,9 @@ void render(){
     cubemapShaders[cubemapIndex]->set_uniform_value("view", cube_view) ;
     cubemapShaders[cubemapIndex]->set_uniform_value("projection", projection) ;
     cubemapShaders[cubemapIndex]->set_uniform_value("cubemap", int(cubemapIndex)) ;
+    shaderPrograms[cubemapIndex]->set_uniform_value("u_time", Time);
+    shaderPrograms[cubemapIndex]->set_uniform_value("blurStrength", blurStrength);
+    shaderPrograms[cubemapIndex]->set_uniform_value("shake", shake);
     glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapTextures[cubemapIndex]) ;
     glBindVertexArray(cubemapVAOs[cubemapIndex]) ;
     glDrawArrays(GL_TRIANGLES, 0, 2 * 6 * 3) ;
@@ -632,6 +716,41 @@ void render(){
         }
         particleShader->release();
         glEnable(GL_CULL_FACE); 
+    }
+
+    /*======================== Smoke rendering ========================*/
+    if(smoke){
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        
+        SmokeShader->use();
+        SmokeShader->set_uniform_value("view", view);
+        SmokeShader->set_uniform_value("projection", projection);
+        SmokeShader->set_uniform_value("u_time", Time);
+        SmokeShader->set_uniform_value("blurStrength", blurStrength);
+        SmokeShader->set_uniform_value("shake", shake);
+        SmokeShader->set_uniform_value("light_pos", light.position);
+        SmokeShader->set_uniform_value("redColor",glm::vec3(1.0,0.0,0.0));
+        SmokeShader->set_uniform_value("yellowColor",glm::vec3(1.0, 0.5, 0.0));
+        SmokeShader->set_uniform_value("grayColor",glm::vec3(0.5, 0.5, 0.5));
+        
+        for (const auto& p : smokeparticles) {
+            
+            if (p.life > 0.0f) {
+                
+                glm::mat4 model = glm::translate(glm::mat4(1.0f), p.position);
+                smokemodel = glm::scale(model, glm::vec3(p.size)); // 調整大小
+                SmokeShader->set_uniform_value("objectSize",p.size);
+                SmokeShader->set_uniform_value("model", smokemodel);
+                SmokeShader->set_uniform_value("alpha", p.life); // 用生命時間作為透明度
+
+                Smoke.object->render(); // 假設 Smoke 是雲霧模型
+            }
+            //break;
+        }
+
+        SmokeShader->release();
+        glDisable(GL_BLEND);
     }
 
     /*======================== Over Lay ========================*/
@@ -691,6 +810,7 @@ int main() {
     
     // Render loop, main logic can be found in update, render function
     while (!glfwWindowShouldClose(window)) {
+        Time = glfwGetTime();
         update(); 
         render(); 
         glfwSwapBuffers(window);
@@ -726,7 +846,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     if (key == GLFW_KEY_5 && (action == GLFW_REPEAT || action == GLFW_PRESS))
         shaderProgramIndex = 5;
     if (key == GLFW_KEY_6 && (action == GLFW_REPEAT || action == GLFW_PRESS))
-        shaderProgramIndex = 6; // pre-explosion
+        shaderProgramIndex = 6; // bomb
 
     // camera movement
     float cameraSpeed = 0.5f;
@@ -754,6 +874,11 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         groundTextureIndex = 1; // sand
     if (key == GLFW_KEY_N && (action == GLFW_REPEAT || action == GLFW_PRESS))
         groundTextureIndex = 2; // stones
+
+    // shake and smoke effect
+    if (key == GLFW_KEY_SPACE && (action == GLFW_REPEAT || action == GLFW_PRESS)) {
+        generateSmoke();
+    }
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
