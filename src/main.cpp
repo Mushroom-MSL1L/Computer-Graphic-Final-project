@@ -147,7 +147,7 @@ glm::mat4 helicopterModel;
 glm::mat4 smokemodel;
 glm::mat4 cameraModel;
 
-float marginTime = 25.0;
+float marginTime = 10.0;
 // bomb model & time control
 model_t bomb;
 glm::mat4 bombModel;
