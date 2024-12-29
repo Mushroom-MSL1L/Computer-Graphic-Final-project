@@ -91,8 +91,8 @@ struct particleSystem_t
 };
 
 // settings
-int SCR_WIDTH = 800;
-int SCR_HEIGHT = 600;
+int SCR_WIDTH = 1920;
+int SCR_HEIGHT = 1200;
 float shake_rotate = 0;
 // cube map
 unsigned int cubemapIndex = 0;
@@ -147,7 +147,7 @@ glm::mat4 helicopterModel;
 glm::mat4 smokemodel;
 glm::mat4 cameraModel;
 
-float marginTime = 20.0;
+float marginTime = 25.0;
 // bomb model & time control
 model_t bomb;
 glm::mat4 bombModel;
@@ -171,8 +171,8 @@ float bounceFactor = 0.3f;
 glm::vec3 velocity(0.0f, 0.0f, 0.0f);
 // explosion
 float explosionTime = 20.0 + marginTime;
-float explosionEndTime = explosionTime + 5.0;
-float particleStartTime = 2.0 + marginTime;
+float explosionEndTime = explosionTime + 4.0;
+float particleStartTime = 0.0 + marginTime;
 // fading
 unsigned int quadVAO, quadVBO;
 float quadVertices[] = {
@@ -216,15 +216,6 @@ void material_setup()
     material.gloss = 10.5;
 }
 
-void update_particle_positionY()
-{
-    float amplitude = 10.0f;
-    float offset = 40.0f;
-    float frequency = 1.0f;
-
-    particleSystem.position.y = offset + amplitude + amplitude * sin(currentTime * frequency);
-}
-
 void particle_model_setup()
 {
     /* ======================== particle system ========================*/
@@ -232,11 +223,10 @@ void particle_model_setup()
     particleSystem.incident = glm::vec3(0, -1.5f, 0);           // direction for emit direction and velocity
     particleSystem.normal = glm::normalize(glm::vec3(0, 1, 0)); // spread direction
     particleSystem.acceleration = glm::vec3(0, -0.01, 0);
-    particleSystem.baseSize = 0.2f;       // size of particle, will be randomized later
+    particleSystem.baseSize = 0.25f;       // size of particle, will be randomized later
     particleSystem.baseLifetime = 150.0f; // lifetime of particle, will be randomized later
     particleSystem.generateParticleNumeber = 10;
     particleSystem.randomFactor = 0.05f;
-    // update_particle_positionY();
 
     /* ======================== VAO, VBO =======================*/
     float vertices[] = {0, 0, 0}; // real position of emitter
@@ -593,20 +583,6 @@ void update()
     groundModel = glm::mat4(1.0f);
     groundModel = glm::scale(groundModel, ground.scale);
     groundModel = glm::translate(groundModel, ground.position);
-    // Update particle system
-
-    update_particle_positionY();
-    makeParticles(&particleSystem);
-    for (int i = 0; i < particles.size(); ++i)
-    {
-        Particle *particle = particles[i];
-        particle->update(rate);
-        if (particle->t >= particle->lifetime)
-        {
-            delete particle;
-            particles.erase(particles.begin() + i--);
-        }
-    }
     // Update bomb position
     currentTime = glfwGetTime();
     float time = currentTime - startTime;
@@ -619,6 +595,23 @@ void update()
             velocity.y = 0.0f;
         }
         bomb.position += velocity * time;
+
+        // Update particle system
+        makeParticles(&particleSystem);
+        for (int i = 0; i < particles.size(); ++i)
+        {
+            Particle *particle = particles[i];
+            glm::mat4 modelTransform = glm::mat4(1.0f);
+            particle->position.y -= 6.0f;
+            modelTransform = glm::translate(modelTransform, bomb.position * 10.0f);
+            particle->position = glm::vec3(modelTransform * glm::vec4(particle->position, 1.0f));
+            particle->update(rate);
+            if (particle->t >= particle->lifetime)
+            {
+                delete particle;
+                particles.erase(particles.begin() + i--);
+            }
+        }
     }
     // Update camera position
     float crack_deltaTime = time - crackStartTime;
@@ -637,7 +630,7 @@ void update()
         shake_rotate -= -360.0;
     }
     // smoke effect
-    float smoke_deltaTime = 0.02f;
+    float smoke_deltaTime = 0.03f;
     for (int i = 0; i < smokeparticles.size(); i++)
     {
         if (smokeparticles[i].life > 0.0f)
@@ -645,7 +638,7 @@ void update()
             smokeparticles[i].position += smokeparticles[i].velocity * smoke_deltaTime; // 更新位置
             smokeparticles[i].velocity.y -= 9.8f * smoke_deltaTime;                     // 模擬重力
             smokeparticles[i].life -= smoke_deltaTime;
-            smokeparticles[i].size += 0.005; // 減少生命時間
+            smokeparticles[i].size += 0.007; // 減少生命時間
         }
     }
     if (smokeStartTime <= time && smokeStartTime + 0.1 >= time)
@@ -655,7 +648,7 @@ void update()
     if (collisionTime <= time && collisionTime + 1 >= time)
     {
         shake = 1;
-        blurStrength -= 0.002;
+        blurStrength -= 0.01;
     }
     if (collisionTime + 1 <= time && collisionTime + 1.1 >= time)
     {
