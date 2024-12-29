@@ -20,12 +20,12 @@ Particle::Particle(ParticleCreateInfo* createInfo) {
 void Particle::update(float rate) {
 	velocity += rate * acceleration;
 	position += rate * velocity;
-	if (position.y < 0) {
-		velocity.y *= -0.5f;
-		position.y = 0.0f;
-		velocity.x *= 0.5f;
-		velocity.z *= 0.5f;
-	}
+	// if (position.y < 0) {
+	// 	velocity.y *= -0.5f;
+	// 	position.y = 0.0f;
+	// 	velocity.x *= 0.5f;
+	// 	velocity.z *= 0.5f;
+	// }
 
 	modelTransform = glm::mat4(1.0f);
 	modelTransform = glm::translate(modelTransform, position);
